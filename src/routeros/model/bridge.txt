@@ -1,0 +1,42 @@
+/interface/bridge/port
+
+.id: string
+broadcast-flood
+edge:auto,no,no-discover,yes,yes-discover
+horizon
+interface:u32
+multicast-router:disabled,  permanent,  temporary-query
+priority:u8
+restricted-tcn:boolean
+unknown-multicast-flood:boolean
+comment
+fast-leave: boolean
+internal-path-cost: u32
+path-cost:u32
+tag-stacking:boolean
+unknown-unicast-flood:boolean
+frame-types:admit-all,admit-only-untagged-and-priority-tagged, admit-only-vlan-tagged
+ingress-filtering:boolean
+learn:auto,no,yes
+point-to-point:auto,no,yes
+restricted-role:boolean
+trusted:boolean
+hw: boolean
+disable: boolean
+port-number: u16
+bpdu-quard: boolean
+auto-isolate: boolean
+role: designated-port, disabled-port,root-port
+pvid: u16
+
+/interface/bridge
+name: string!
+add-dhcp-option82: boolean
+admin-mac
+ageing-time
+arp:disabled,enabled,local-proxy-arp,proxy-arp,reply-only
+comment
+disabled:boolean
+ether-type:0x9100,0x8100,0x88a8
+fast-forward:boolean
+frame-types:admit-all,admit-only-untagged-and-priority-tagged, admit-only-vlan-tagged
