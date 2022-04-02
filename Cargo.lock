@@ -744,6 +744,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ros_macro"
+version = "0.1.0"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "routeros-test"
 version = "0.1.0"
 dependencies = [
@@ -751,6 +761,7 @@ dependencies = [
  "convert_case",
  "regex",
  "reqwest",
+ "ros_macro",
  "rust-crypto",
  "serde",
  "serde-aux",

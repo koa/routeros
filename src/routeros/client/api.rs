@@ -1,26 +1,23 @@
-#![crate_name = "router_os"]
-#![crate_type = "lib"]
-
 extern crate crypto;
 
 use std::cell::RefCell;
-use std::detect::__is_feature_detected::xsave;
-use std::fmt::{Debug, Display, Formatter, Write};
-use std::io::{Error, Stderr};
-// use std::io::prelude::*;
+use std::convert::Infallible;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::net::{IpAddr, SocketAddr};
-use std::ops::{Deref, DerefMut};
-use std::rc::Rc;
-use std::slice::Iter;
-use std::sync::{Arc, Mutex};
+use std::num::ParseIntError;
+use std::str::ParseBoolError;
+use std::sync::Mutex;
 
-use tokio::io;
+use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::routeros::model::{ResourceBuilder, RouterOsResource};
+use crate::routeros::model::RouterOsResource;
 use crate::Client;
 
+/*
 fn hex_binascii<'a>(hexstr: &str) -> Result<Vec<u8>, &'a str> {
     if hexstr.len() % 2 != 0 {
         Err("Odd number of characters")
@@ -40,19 +37,57 @@ fn hex_binascii<'a>(hexstr: &str) -> Result<Vec<u8>, &'a str> {
         Ok(result)
     }
 }
-
+*/
 #[derive(Debug)]
 pub enum RosError {
     TokioError(tokio::io::Error),
     SimpleMessage(String),
+    ParseIntError(ParseIntError),
+    ParseBoolError(ParseBoolError),
 }
 
 impl Display for RosError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            RosError::TokioError(e) => Debug::fmt(&e, f),
+            RosError::TokioError(e) => Display::fmt(&e, f),
             RosError::SimpleMessage(msg) => f.write_str(msg),
+            RosError::ParseIntError(e) => std::fmt::Display::fmt(&e, f),
+            RosError::ParseBoolError(e) => std::fmt::Display::fmt(&e, f),
         }
+    }
+}
+
+impl From<ParseIntError> for RosError {
+    fn from(e: ParseIntError) -> Self {
+        RosError::ParseIntError(e)
+    }
+}
+
+impl From<ParseBoolError> for RosError {
+    fn from(e: ParseBoolError) -> Self {
+        RosError::ParseBoolError(e)
+    }
+}
+
+impl From<tokio::io::Error> for RosError {
+    fn from(e: tokio::io::Error) -> Self {
+        RosError::TokioError(e)
+    }
+}
+impl From<String> for RosError {
+    fn from(e: String) -> Self {
+        RosError::SimpleMessage(e)
+    }
+}
+impl From<&str> for RosError {
+    fn from(e: &str) -> Self {
+        RosError::SimpleMessage(String::from(e))
+    }
+}
+
+impl From<Infallible> for RosError {
+    fn from(_: Infallible) -> Self {
+        panic!("Infallible means it cannot happen");
     }
 }
 
@@ -224,19 +259,8 @@ impl<'a> ApiRos {
         ApiRos { stream: s }
     }
 
-    pub async fn try_read(&mut self) -> bool {
-        if self.stream.read(&mut [0]).await.unwrap() > 0 {
-            true
-        } else {
-            false
-        }
-    }
-
     async fn write_bytes(&mut self, str_buff: &[u8]) -> Result<(), RosError> {
-        self.stream
-            .write(str_buff)
-            .await
-            .map_err(|e| RosError::TokioError(e));
+        self.stream.write(str_buff).await?;
         Ok(())
     }
 
@@ -245,10 +269,24 @@ impl<'a> ApiRos {
         let result = self.stream.read_buf(&mut buff).await;
         match result {
             Ok(result) => {
-                if result == length {
+                if result < length {
+                    let mut pointer = result;
+                    while pointer < length {
+                        let mut remaining_buff: Vec<u8> = Vec::with_capacity(length - pointer);
+                        let result = self.stream.read_buf(&mut remaining_buff).await;
+                        match result {
+                            Ok(result) => {
+                                buff.append(&mut remaining_buff);
+                                pointer += result;
+                            }
+                            Err(e) => return Err(RosError::TokioError(e)),
+                        }
+                    }
+                    Ok(buff)
+                } else if result == length {
                     Ok(buff)
                 } else {
-                    Err(RosError::SimpleMessage(format!(
+                    Err(RosError::from(format!(
                         "Expected {}, but received {} bytes",
                         length, result
                     )))
@@ -369,21 +407,10 @@ impl<'a> ApiRos {
         Ok(ret)
     }
 
-    pub async fn read_sentence(&mut self) -> Result<Vec<Vec<u8>>, RosError> {
-        let mut r: Vec<Vec<u8>> = Vec::new();
-        loop {
-            let token = self.read_token().await?;
-            if token.is_empty() {
-                return Ok(r);
-            }
-            r.push(token);
-        }
-    }
-
     async fn talk<W, C>(&mut self, words: W, callback: &mut C) -> Result<(), RosError>
     where
         W: IntoIterator<Item = ApiWord>,
-        C: FnMut(ApiWord),
+        C: FnMut(ApiWord) -> Result<(), RosError>,
     {
         self.write_sentence(words.into_iter()).await?;
 
@@ -400,11 +427,11 @@ impl<'a> ApiRos {
                     }
                 }
                 Some(ApiWord::Reply(ApiReplyType::Data)) => {
-                    callback(ApiWord::Reply(ApiReplyType::Data));
-                    read_data = true
+                    callback(ApiWord::Reply(ApiReplyType::Data))?;
+                    read_data = true;
                 }
-                Some(token) => callback(token),
-            }
+                Some(token) => callback(token)?,
+            };
         }
     }
 
@@ -413,7 +440,11 @@ impl<'a> ApiRos {
         W: IntoIterator<Item = ApiWord>,
     {
         let mut r = Vec::new();
-        self.talk(words, &mut |word| r.push(word)).await?;
+        self.talk(words, &mut |word| {
+            r.push(word);
+            Ok(())
+        })
+        .await?;
         Ok(r)
     }
 
@@ -468,7 +499,7 @@ impl ApiClient {
             .await
             .map_err(|e| RosError::TokioError(e))?;
         let mut api: ApiRos = ApiRos::new(stream);
-        let l = api.login(username, password).await?;
+        api.login(username, password).await?;
 
         let ports = api
             .talk_vec([ApiWord::command("system/resource/print")])
@@ -478,8 +509,6 @@ impl ApiClient {
         Ok(ApiClient { api })
     }
 }
-use crate::routeros::client::api::RosError::SimpleMessage;
-use async_trait::async_trait;
 
 #[async_trait]
 impl Client<RosError> for ApiClient {
@@ -489,33 +518,51 @@ impl Client<RosError> for ApiClient {
     {
         let path = Resource::resource_path();
         let command = format!("{}/print", path);
-        let mut result_builder = Mutex::new(RefCell::new(Resource::builder()));
+        let mut result_builder = Mutex::new(RefCell::new(Resource::default()));
 
         let mut ret = vec![];
         self.api
             .talk([ApiWord::command(command)], &mut |word| match word {
-                ApiWord::Command(_) => {}
+                ApiWord::Command(_) => Ok(()),
                 ApiWord::Attribute { key, value } => {
-                    result_builder
+                    if let Some(field_accessor) = result_builder
                         .get_mut()
                         .unwrap()
                         .get_mut()
-                        .write_field(key, value);
+                        .fields_mut()
+                        .find(|e| e.0.eq(key.as_str()))
+                        .map(|e| e.1)
+                    {
+                        field_accessor.set(value.as_str())?;
+                        Ok(())
+                    } else {
+                        Err(RosError::from(format!("Unknown key: {}", key)))
+                    }
                 }
                 ApiWord::Reply(ApiReplyType::Done) => {
                     ret.push(
                         result_builder
                             .get_mut()
                             .unwrap()
-                            .replace(Resource::builder())
-                            .build(),
+                            .replace(Resource::default()),
                     );
+                    Ok(())
                 }
-                ApiWord::ApiAttribute { .. } => {}
-                ApiWord::Query(_) => {}
-                ApiWord::Reply(_) => {}
+                ApiWord::Reply(ApiReplyType::Data) => {
+                    ret.push(
+                        result_builder
+                            .get_mut()
+                            .unwrap()
+                            .replace(Resource::default()),
+                    );
+                    Ok(())
+                }
+                ApiWord::ApiAttribute { .. } => Ok(()),
+                ApiWord::Query(_) => Ok(()),
+                ApiWord::Reply(_) => Ok(()),
             })
             .await?;
+        ret.remove(ret.len() - 1);
         Ok(ret)
     }
 

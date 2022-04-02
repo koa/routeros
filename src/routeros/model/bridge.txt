@@ -1,42 +1,61 @@
 /interface/bridge/port
 
-.id: string
-broadcast-flood
+.id
+.nextid
+broadcast-flood: bool
 edge:auto,no,no-discover,yes,yes-discover
-horizon
-interface:u32
+interface
+bridge
 multicast-router:disabled,  permanent,  temporary-query
 priority:u8
-restricted-tcn:boolean
-unknown-multicast-flood:boolean
+restricted-tcn:bool
+unknown-multicast-flood:bool
 comment
-fast-leave: boolean
+fast-leave: bool
 internal-path-cost: u32
 path-cost:u32
-tag-stacking:boolean
-unknown-unicast-flood:boolean
+tag-stacking:bool
+unknown-unicast-flood:bool
 frame-types:admit-all,admit-only-untagged-and-priority-tagged, admit-only-vlan-tagged
-ingress-filtering:boolean
+ingress-filtering:bool
 learn:auto,no,yes
+horizon:Option<u32>
 point-to-point:auto,no,yes
-restricted-role:boolean
-trusted:boolean
-hw: boolean
-disable: boolean
+restricted-role:bool
+trusted:bool
+hw: bool
+disable: bool
 port-number: u16
-bpdu-quard: boolean
-auto-isolate: boolean
-role: designated-port, disabled-port,root-port
+bpdu-guard: bool
+auto-isolate: bool
+role: designated-port, root-port, alternate, backup, disabled-port
 pvid: u16
+status: in-bridge, inactive
+edge-port: bool
+edge-port-discovery: bool
+external-fdb: bool
+external-fdb-status: bool
+forwarding: bool
+hw-offload-group
+hw-offload: bool
+learning: bool
+point-to-point-port: bool
+sending-rstp: bool
+debug-info
+inactive: bool
+dynamic: bool
+disabled: bool
+designated-bridge
+designated-port-number: u16
 
 /interface/bridge
-name: string!
-add-dhcp-option82: boolean
+name
+add-dhcp-option82: bool
 admin-mac
 ageing-time
-arp:disabled,enabled,local-proxy-arp,proxy-arp,reply-only
+arp:enabled,disabled,local-proxy-arp,proxy-arp,reply-only
 comment
-disabled:boolean
+disabled:bool
 ether-type:0x9100,0x8100,0x88a8
-fast-forward:boolean
+fast-forward:bool
 frame-types:admit-all,admit-only-untagged-and-priority-tagged, admit-only-vlan-tagged

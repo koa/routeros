@@ -1,11 +1,7 @@
-extern crate core;
-
 use crate::routeros::client::api::ApiClient;
-use crate::routeros::client::{Client, HttpClient};
+use crate::routeros::client::Client;
 
-use reqwest::ClientBuilder;
-use routeros::model::bridge::{BridgePort, BridgeVlan};
-use routeros::model::system::SystemResource;
+use crate::routeros::generated::interface::bridge::port::BridgePort;
 
 mod routeros;
 
@@ -14,12 +10,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Start");
 
     //    let x = Ok(Some(true));
-
-    let conn = ClientBuilder::new()
-        .connection_verbose(true)
-        .danger_accept_invalid_certs(true)
-        .build()?;
-
+    /*
+        let conn = ClientBuilder::new()
+            .connection_verbose(true)
+            .danger_accept_invalid_certs(true)
+            .build()?;
+    */
     /*
         let client = HttpClient::new(
             conn,
@@ -36,7 +32,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    let sr: Vec<SystemResource> = client.list().await?;
+    let ports: Vec<BridgePort> = client.list().await?;
+    for bp in ports {
+        println!("Bridge port: {:?}", bp);
+    }
+
+    //for x in sr {
+    //    println!("Resource: {}", x);
+    //}
 
     //let systemResource: SystemResource = client.get().await?;
     //println!("System Resource: {:#?}", systemResource);

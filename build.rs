@@ -35,89 +35,6 @@ struct Enum {
 struct OutputField {
     field_name: String,
     field_type: String,
-    required: bool,
-}
-enum ParsedField {
-    Static {
-        type_name: &'static str,
-        pattern: StaticAnnotationPattern,
-    },
-    String {
-        type_name: String,
-        pattern: StaticAnnotationPattern,
-    },
-}
-
-#[derive(Debug)]
-struct StaticField {
-    type_name: &'static str,
-    pattern: StaticAnnotationPattern,
-}
-#[derive(Debug)]
-struct StringField {
-    type_name: String,
-    pattern: StaticAnnotationPattern,
-}
-#[derive(Debug)]
-enum StaticAnnotationPattern {
-    Empty,
-    Optional,
-}
-
-impl StaticAnnotationPattern {
-    fn serde_options(&self, callback: &mut dyn FnMut(&str) -> ()) {
-        match self {
-            StaticAnnotationPattern::Empty => {}
-            StaticAnnotationPattern::Optional => {
-                callback("deserialize_with = \"deserialize_optional_from_string\"");
-                callback("serialize_with = \"serialize_optional_to_string\"");
-                callback("default");
-            }
-        }
-    }
-}
-
-trait FieldSettings {
-    fn field_name(&self) -> &str;
-    fn serde_options(&self, callback: &mut dyn FnMut(&str) -> ());
-}
-
-impl FieldSettings for ParsedField {
-    fn field_name(&self) -> &str {
-        match self {
-            ParsedField::Static { type_name, .. } => type_name,
-            ParsedField::String { type_name, .. } => type_name.as_str(),
-        }
-    }
-
-    fn serde_options(&self, callback: &mut dyn FnMut(&str) -> ()) {
-        match self {
-            ParsedField::Static { pattern, .. } => {
-                pattern.serde_options(callback);
-            }
-            ParsedField::String { .. } => {}
-        }
-    }
-}
-
-impl FieldSettings for StaticField {
-    fn field_name(&self) -> &str {
-        self.type_name
-    }
-
-    fn serde_options(&self, callback: &mut dyn FnMut(&str) -> ()) {
-        self.pattern.serde_options(callback);
-    }
-}
-
-impl FieldSettings for StringField {
-    fn field_name(&self) -> &str {
-        self.type_name.as_str()
-    }
-
-    fn serde_options(&self, callback: &mut dyn FnMut(&str) -> ()) {
-        self.pattern.serde_options(callback)
-    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -155,8 +72,8 @@ fn main() -> std::io::Result<()> {
             _ => break,
         }
     }
-    println!("Tree: {:#?}", root_module);
-    let mut current_struct: Box<String> = Box::new(str::to_string(""));
+    //println!("Tree: {:#?}", root_module);
+    // let mut current_struct: Box<String> = Box::new(str::to_string(""));
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated.rs");
@@ -202,33 +119,68 @@ fn dump_module(
 
     let prefix = "  ".repeat(depth.into());
     if !module_data.content.is_empty() {
+        writeln!(file, "{prefix}use ros_macro::RouterOsApiFieldAccess;")?;
+        writeln!(file, "{prefix}use crate::routeros::client::api::RosError;")?;
+        writeln!(file, "{prefix}use crate::routeros::model::{{RosFieldAccessor, RosFieldValue, RosValue, RouterOsResource}};")?;
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
-            writeln!(file, "{prefix}#[derive(Serialize, Deserialize, Debug)]")?;
-            writeln!(file, "{prefix}#[serde(rename_all = \"kebab-case\")]")?;
+            writeln!(file, "{prefix}#[derive(Debug)]")?;
             writeln!(file, "{prefix}pub enum {type_name} {{")?;
             for value in type_values.values.iter() {
                 if let Some(enum_value) = expand_enum_name(value.as_str()) {
-                    if !enum_value.to_case(Case::Kebab).eq(value) {
-                        writeln!(file, "{prefix}  #[serde(rename=\"{value}\")]")?;
-                    }
                     writeln!(file, "{prefix}  {enum_value},")?;
                 }
             }
             writeln!(file, "{prefix}}}")?;
+            let default_value =
+                expand_enum_name(type_values.values.iter().next().unwrap().as_str()).unwrap();
+            writeln!(file, "{prefix}impl RosValue for {type_name} {{")?;
+            writeln!(file, "{prefix}  type Type = {type_name};")?;
+            writeln!(file, "{prefix}  type Err = RosError;")?;
+            /*writeln!(
+                file,
+                "{prefix}  fn empty() -> Self::Type {{ {type_name}::{default_value} }}"
+            )?;*/
+            writeln!(
+                file,
+                "{prefix}  fn from_api(value: &str) -> Result<Self::Type, Self::Err> {{"
+            )?;
+            writeln!(file, "{prefix}    match value {{")?;
+            for value in type_values.values.iter() {
+                if let Some(enum_value) = expand_enum_name(value.as_str()) {
+                    writeln!(
+                        file,
+                        "{prefix}      \"{value}\" => Ok({type_name}::{enum_value}),"
+                    )?;
+                }
+            }
+            writeln!(file, "{prefix}      unknown => Err(RosError::SimpleMessage(format!(\"unknown enum value: {{unknown}}\")))")?;
+            writeln!(file, "{prefix}    }}")?;
+            writeln!(file, "{prefix}  }}")?;
+            writeln!(file, "{prefix}  fn to_api(&self) -> String {{")?;
+            writeln!(file, "{prefix}    String::from(match self {{")?;
+            for value in type_values.values.iter() {
+                if let Some(enum_value) = expand_enum_name(value.as_str()) {
+                    writeln!(
+                        file,
+                        "{prefix}       {type_name}::{enum_value} => \"{value}\","
+                    )?;
+                }
+            }
+            writeln!(file, "{prefix}    }})")?;
+            writeln!(file, "{prefix}  }}")?;
+            writeln!(file, "{prefix}}}")?;
+            writeln!(file, "{prefix}impl Default for {type_name} {{")?;
+            writeln!(file, "{prefix}  fn default() -> Self {{")?;
+            writeln!(file, "{prefix}    {type_name}::{default_value}")?;
+            writeln!(file, "{prefix}  }}")?;
+            writeln!(file, "{prefix}}}")?;
         }
 
-        writeln!(file, "{prefix}use serde::{{Deserialize, Serialize}};")?;
-        writeln!(file, "{prefix}use crate::routeros::json::{{")?;
         writeln!(
             file,
-            "{prefix}    deserialize_number_ranges_from_string, deserialize_optional_from_string,"
+            "{prefix}#[derive(Debug, Default, RouterOsApiFieldAccess)]"
         )?;
-        writeln!(file, "{prefix}    serialize_number_ranges_to_string, serialize_optional_to_string, serialize_stringset_to_string,")?;
-        writeln!(file, "{prefix}    stringset_from_string,")?;
-        writeln!(file, "{prefix}}};")?;
-        writeln!(file, "{prefix}#[derive(Serialize, Deserialize, Debug)]")?;
-        writeln!(file, "{prefix}#[serde(rename_all = \"kebab-case\")]")?;
         writeln!(file, "{prefix}pub struct {model_name} {{")?;
         for field in module_data.content.iter() {
             let mut field_name = String::new();
@@ -244,79 +196,18 @@ fn dump_module(
                     last_was_masked = true;
                 }
             }
-            let field_settings: Option<Box<dyn FieldSettings>> = if field.required {
-                if let Some(_) = module_data.enums.get(field.field_type.as_str()) {
-                    Some(Box::new(StringField {
-                        type_name: format!("Option<{}>", field.field_type),
-                        pattern: StaticAnnotationPattern::Empty,
-                    }))
-                } else {
-                    match field.field_type.as_str() {
-                        "string" => Some(Box::new(StaticField {
-                            type_name: "String",
-                            pattern: StaticAnnotationPattern::Empty,
-                        })),
-                        "u16" => Some(Box::new(StaticField {
-                            type_name: "u16",
-                            pattern: StaticAnnotationPattern::Empty,
-                        })),
-                        "boolean" => Some(Box::new(StaticField {
-                            type_name: "bool",
-                            pattern: StaticAnnotationPattern::Empty,
-                        })),
-                        _ => None,
-                    }
-                }
-            } else {
-                if let Some(_) = module_data.enums.get(field.field_type.as_str()) {
-                    Some(Box::new(StringField {
-                        type_name: format!("Option<{}>", field.field_type),
-                        pattern: StaticAnnotationPattern::Empty,
-                    }))
-                } else {
-                    println!("Field type: {}", field.field_type);
-                    match field.field_type.as_str() {
-                        "boolean" => Some(Box::new(StaticField {
-                            type_name: "Option<bool>",
-                            pattern: StaticAnnotationPattern::Optional,
-                        })),
-                        "string" => Some(Box::new(StaticField {
-                            type_name: "Option<String>",
-                            pattern: StaticAnnotationPattern::Empty,
-                        })),
-                        "u16" => Some(Box::new(StaticField {
-                            type_name: "Option<u16>",
-                            pattern: StaticAnnotationPattern::Optional,
-                        })),
-                        _ => None,
-                    }
-                }
-            };
-            if let Some(field_settings) = field_settings {
-                let mut serde_settings = vec![];
-                if !field_name.to_case(Case::Kebab).eq(&field.field_name) {
-                    let string = format!(
-                        "rename=\"{original_name}\"",
-                        original_name = field.field_name
-                    );
-                    serde_settings.push(string);
-                }
-
-                field_settings.serde_options(&mut (|v: &str| serde_settings.push(v.into())));
-                if !serde_settings.is_empty() {
-                    writeln!(file, "{prefix}  #[serde(")?;
-                    for setting in serde_settings {
-                        writeln!(file, "{prefix}    {setting},")?
-                    }
-                    writeln!(file, "{prefix}  )]")?
-                }
-                writeln!(
-                    file,
-                    "{prefix}  {field_name}: {field_type},",
-                    field_type = field_settings.field_name()
-                )?;
-            }
+            writeln!(
+                file,
+                "{prefix}  {field_name}: RosFieldValue<{field_type}>,",
+                field_type = field.field_type
+            )?;
         }
+        writeln!(file, "{prefix}}}")?;
+        let module_path = module_path.join("/");
+        writeln!(file, "{prefix}impl RouterOsResource for {model_name} {{")?;
+        writeln!(file, "{prefix}   fn resource_path() -> &'static str {{")?;
+        writeln!(file, "{prefix}     \"{module_path}\"")?;
+        writeln!(file, "{prefix}    }}")?;
         writeln!(file, "{prefix}}}")?;
         /*
         writeln!(file, " ")?;
@@ -351,7 +242,6 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
     }
     let field_type = Mutex::new(RefCell::new(String::new()));
     let mut field_type_components: Vec<String> = vec![];
-    let mut required = false;
     //let mut closure_field_type = field_type.clone();
     let mut push_to_components = || {
         let mut guard = field_type.lock().unwrap();
@@ -365,10 +255,6 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
     loop {
         match char_iter.next() {
             None => break,
-            Some(ch) if ch == '!' => {
-                required = true;
-                break;
-            }
             Some(ch) if ch == ',' => {
                 push_to_components();
             }
@@ -385,8 +271,7 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
         return Some((
             OutputField {
                 field_name: String::from(trimmed_name),
-                field_type: String::from("string"),
-                required: false,
+                field_type: String::from("String"),
             },
             None,
         ));
@@ -397,7 +282,6 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             OutputField {
                 field_name: String::from(trimmed_name),
                 field_type: trimmed_type,
-                required,
             },
             None,
         ))
@@ -406,7 +290,6 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             OutputField {
                 field_name: String::from(trimmed_name),
                 field_type: trimmed_name.to_case(Case::UpperCamel),
-                required,
             },
             Some(Enum {
                 values: field_type_components,
