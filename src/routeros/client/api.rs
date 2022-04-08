@@ -44,6 +44,12 @@ pub enum RosError {
     SimpleMessage(String),
     ParseIntError(ParseIntError),
     ParseBoolError(ParseBoolError),
+    Umbrella(Vec<RosError>),
+    FieldWriteError {
+        field_name: String,
+        field_value: String,
+        error: Box<RosError>,
+    },
 }
 
 impl Display for RosError {
@@ -53,6 +59,25 @@ impl Display for RosError {
             RosError::SimpleMessage(msg) => f.write_str(msg),
             RosError::ParseIntError(e) => std::fmt::Display::fmt(&e, f),
             RosError::ParseBoolError(e) => std::fmt::Display::fmt(&e, f),
+            RosError::Umbrella(errors) => {
+                for error in errors {
+                    std::fmt::Display::fmt(&error, f)?;
+                }
+                Ok(())
+            }
+            RosError::FieldWriteError {
+                field_name,
+                field_value,
+                error,
+            } => {
+                f.write_str("Error on field ")?;
+                f.write_str(&field_name)?;
+                f.write_str(" value ")?;
+                f.write_str(&field_value)?;
+                f.write_str(": ")?;
+                std::fmt::Display::fmt(&error, f)?;
+                Ok(())
+            }
         }
     }
 }
@@ -416,6 +441,8 @@ impl<'a> ApiRos {
 
         let mut read_data = false;
 
+        let mut errors: Vec<RosError> = Vec::new();
+
         loop {
             let raw_token = self.read_word().await?;
             match raw_token {
@@ -423,15 +450,28 @@ impl<'a> ApiRos {
                     if read_data {
                         read_data = false;
                     } else {
-                        return Ok(());
+                        return if errors.is_empty() {
+                            Ok(())
+                        } else {
+                            Err(RosError::Umbrella(errors))
+                        };
                     }
                 }
                 Some(ApiWord::Reply(ApiReplyType::Data)) => {
-                    callback(ApiWord::Reply(ApiReplyType::Data))?;
+                    Self::push_err(&mut errors, callback(ApiWord::Reply(ApiReplyType::Data)));
                     read_data = true;
                 }
-                Some(token) => callback(token)?,
+                Some(token) => {
+                    Self::push_err(&mut errors, callback(token));
+                }
             };
+        }
+    }
+
+    fn push_err(errors: &mut Vec<RosError>, callback_result: Result<(), RosError>) {
+        match callback_result {
+            Result::Ok(_) => {}
+            Result::Err(err) => errors.push(err),
         }
     }
 
@@ -533,10 +573,18 @@ impl Client<RosError> for ApiClient {
                         .find(|e| e.0.eq(key.as_str()))
                         .map(|e| e.1)
                     {
-                        field_accessor.set(value.as_str())?;
+                        field_accessor.set_from_api(value.as_str()).map_err(|e| {
+                            RosError::FieldWriteError {
+                                field_name: key.to_string(),
+                                field_value: value.to_string(),
+                                error: Box::new(e),
+                            }
+                        })?;
                         Ok(())
                     } else {
-                        Err(RosError::from(format!("Unknown key: {}", key)))
+                        Err(RosError::from(format!(
+                            "Unknown key: {key}, value: {value}"
+                        )))
                     }
                 }
                 ApiWord::Reply(ApiReplyType::Done) => {
@@ -562,8 +610,33 @@ impl Client<RosError> for ApiClient {
                 ApiWord::Reply(_) => Ok(()),
             })
             .await?;
-        ret.remove(ret.len() - 1);
+        ret.remove(0);
         Ok(ret)
+    }
+
+    async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
+    where
+        Resource: RouterOsResource + Send,
+    {
+        {
+            let mut request: Vec<ApiWord> = Vec::new();
+            let path = Resource::resource_path();
+
+            request.push(ApiWord::command(format!("{}/set", path)));
+            if let Some(id_field) = Resource::id_field() {
+                if let Some(id_value) = resource.id_value() {
+                    request.push(ApiWord::attribute(id_field, id_value));
+                }
+            }
+            resource
+                .fields()
+                .filter_map(|f| f.1.modified_value().map(|v| (f.0, v)))
+                .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
+
+            let x = self.api.talk_vec(request).await?;
+            println!("Result: {:?}", x);
+            Ok(())
+        }
     }
 
     async fn get<Resource>(&self) -> Result<Resource, RosError>

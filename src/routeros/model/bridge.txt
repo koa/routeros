@@ -20,7 +20,7 @@ frame-types:admit-all,admit-only-untagged-and-priority-tagged, admit-only-vlan-t
 ingress-filtering:bool
 learn:auto,no,yes
 horizon:Option<u32>
-point-to-point:auto,no,yes
+point-to-point: Auto<bool>
 restricted-role:bool
 trusted:bool
 hw: bool
@@ -47,15 +47,33 @@ dynamic: bool
 disabled: bool
 designated-bridge
 designated-port-number: u16
+root-path-cost: u32
+designated-cost: u32
 
 /interface/bridge
+.id
+mtu: Auto<u16>
+actual-mtu: u16
+l2mtu: u16
 name
 add-dhcp-option82: bool
 admin-mac
+auto-mac: bool
+priority: u16
 ageing-time
 arp:enabled,disabled,local-proxy-arp,proxy-arp,reply-only
+arp-timeout: Auto<u32>
+mac-address
+protocol-mode: rstp, none, stp, mstp
+igmp-snooping: bool
 comment
 disabled:bool
 ether-type:0x9100,0x8100,0x88a8
 fast-forward:bool
 frame-types:admit-all,admit-only-untagged-and-priority-tagged, admit-only-vlan-tagged
+max-message-age: Duration
+forward-delay: Duration
+transmit-hold-count: u8
+vlan-filtering: bool
+dhcp-snooping: bool
+running: bool

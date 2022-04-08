@@ -2,7 +2,7 @@ use crate::routeros::model::{RosFieldAccessor, RosFieldValue, RouterOsResource};
 use ros_macro::RouterOsApiFieldAccess;
 use std::fmt::Debug;
 
-#[derive(Debug, Default, RouterOsApiFieldAccess)]
+#[derive(Debug, Default, RouterOsApiFieldAccess, Clone)]
 pub struct SystemResource {
     architecture_name: RosFieldValue<String>,
     board_name: RosFieldValue<String>,

@@ -119,12 +119,15 @@ fn dump_module(
 
     let prefix = "  ".repeat(depth.into());
     if !module_data.content.is_empty() {
-        writeln!(file, "{prefix}use ros_macro::RouterOsApiFieldAccess;")?;
+        //writeln!(file, "{prefix}use ros_macro::RouterOsApiFieldAccess;")?;
         writeln!(file, "{prefix}use crate::routeros::client::api::RosError;")?;
-        writeln!(file, "{prefix}use crate::routeros::model::{{RosFieldAccessor, RosFieldValue, RosValue, RouterOsResource}};")?;
+        writeln!(
+            file,
+            "{prefix}use crate::routeros::model::{{Auto, Duration}};"
+        )?;
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
-            writeln!(file, "{prefix}#[derive(Debug)]")?;
+            writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone)]")?;
             writeln!(file, "{prefix}pub enum {type_name} {{")?;
             for value in type_values.values.iter() {
                 if let Some(enum_value) = expand_enum_name(value.as_str()) {
@@ -134,7 +137,10 @@ fn dump_module(
             writeln!(file, "{prefix}}}")?;
             let default_value =
                 expand_enum_name(type_values.values.iter().next().unwrap().as_str()).unwrap();
-            writeln!(file, "{prefix}impl RosValue for {type_name} {{")?;
+            writeln!(
+                file,
+                "{prefix}impl crate::routeros::model::RosValue for {type_name} {{"
+            )?;
             writeln!(file, "{prefix}  type Type = {type_name};")?;
             writeln!(file, "{prefix}  type Err = RosError;")?;
             /*writeln!(
@@ -177,50 +183,79 @@ fn dump_module(
             writeln!(file, "{prefix}}}")?;
         }
 
-        writeln!(
-            file,
-            "{prefix}#[derive(Debug, Default, RouterOsApiFieldAccess)]"
-        )?;
+        writeln!(file, "{prefix}#[derive(Debug, Default, Clone)]")?;
         writeln!(file, "{prefix}pub struct {model_name} {{")?;
+        let mut has_id = false;
         for field in module_data.content.iter() {
-            let mut field_name = String::new();
-            let mut last_was_masked = true;
-            for ch in field.field_name.chars() {
-                if ch.is_alphanumeric() {
-                    field_name.push(ch);
-                    last_was_masked = false;
-                } else {
-                    if !last_was_masked {
-                        field_name.push('_')
-                    };
-                    last_was_masked = true;
-                }
-            }
+            let field_name = name2rust(&field.field_name);
+            let is_id = field.field_name == ".id";
+            has_id |= is_id;
+            let access = if is_id { "" } else { "pub " };
             writeln!(
                 file,
-                "{prefix}  {field_name}: RosFieldValue<{field_type}>,",
+                "{prefix}  {access}{field_name}: crate::routeros::model::RosFieldValue<{field_type}>,",
                 field_type = field.field_type
             )?;
         }
         writeln!(file, "{prefix}}}")?;
         let module_path = module_path.join("/");
-        writeln!(file, "{prefix}impl RouterOsResource for {model_name} {{")?;
-        writeln!(file, "{prefix}   fn resource_path() -> &'static str {{")?;
-        writeln!(file, "{prefix}     \"{module_path}\"")?;
-        writeln!(file, "{prefix}    }}")?;
-        writeln!(file, "{prefix}}}")?;
-        /*
-        writeln!(file, " ")?;
         writeln!(
             file,
             "{prefix}impl crate::routeros::model::RouterOsResource for {model_name} {{"
         )?;
-        writeln!(file, "{prefix}  fn resource_path() -> &'static str {{")?;
-        writeln!(file, "{prefix}    \"{path}\"", path = module_path.join("/"))?;
-        writeln!(file, "{prefix}  }}")?;
-        writeln!(file, "{prefix}}}")?;
+        writeln!(file, "{prefix}   fn resource_path() -> &'static str {{")?;
+        writeln!(file, "{prefix}     \"{module_path}\"")?;
+        writeln!(file, "{prefix}    }}")?;
 
-         */
+        if has_id {
+            writeln!(file, "{prefix}   fn id_field() -> Option<&'static str> {{")?;
+            writeln!(file, "{prefix}     Option::Some(\".id\")")?;
+            writeln!(file, "{prefix}    }}")?;
+            writeln!(file, "{prefix}   fn id_value(&self) -> Option<String> {{")?;
+            writeln!(file, "{prefix}     Option::Some( self.id.original_value())")?;
+            writeln!(file, "{prefix}    }}")?;
+        }
+        writeln!(file, "{prefix}}}")?;
+        writeln!(
+            file,
+            "{prefix}impl crate::routeros::model::RouterOsApiFieldAccess for {model_name} {{"
+        )?;
+        writeln!(file, "{prefix}  fn fields_mut(&mut self) -> Box<dyn Iterator<Item = (&str, &mut dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
+
+        writeln!(
+            file,
+            "{prefix}    let fields: Vec<(&str, &mut dyn crate::routeros::model::RosFieldAccessor)> = vec!["
+        )?;
+        for field in module_data.content.iter() {
+            let field_name_rust = name2rust(&field.field_name);
+            writeln!(
+                file,
+                "{prefix}      (\"{field_name}\", &mut self.{field_name_rust}),",
+                field_name = &field.field_name
+            )?;
+        }
+        writeln!(file, "{prefix}    ];")?;
+        writeln!(file, "{prefix}    Box::new(fields.into_iter())")?;
+        writeln!(file, "{prefix}  }}")?;
+        writeln!(file, "{prefix}  fn fields(&self) -> Box<dyn Iterator<Item = (&str, &dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
+
+        writeln!(
+            file,
+            "{prefix}    let fields: Vec<(&str, &dyn crate::routeros::model::RosFieldAccessor)> = vec!["
+        )?;
+        for field in module_data.content.iter() {
+            let field_name_rust = name2rust(&field.field_name);
+            writeln!(
+                file,
+                "{prefix}      (\"{field_name}\", &self.{field_name_rust}),",
+                field_name = &field.field_name
+            )?;
+        }
+        writeln!(file, "{prefix}   ];")?;
+        writeln!(file, "{prefix}   Box::new(fields.into_iter())")?;
+        writeln!(file, "{prefix}  }}")?;
+
+        writeln!(file, "{prefix}}}")?;
     }
     for (module_name, module_data) in module_data.sub_modules.iter() {
         writeln!(file, "{prefix}pub mod {module_name} {{")?;
@@ -228,6 +263,23 @@ fn dump_module(
         writeln!(file, "{prefix}}}")?;
     }
     Ok(())
+}
+
+fn name2rust(string: &String) -> String {
+    let mut field_name = String::new();
+    let mut last_was_masked = true;
+    for ch in string.chars() {
+        if ch.is_alphanumeric() {
+            field_name.push(ch);
+            last_was_masked = false;
+        } else {
+            if !last_was_masked {
+                field_name.push('_')
+            };
+            last_was_masked = true;
+        }
+    }
+    field_name
 }
 
 fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {

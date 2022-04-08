@@ -6,8 +6,6 @@ use proc_macro::TokenStream;
 use ::proc_macro2::{Span, TokenStream as TokenStream2};
 use ::quote::{quote, quote_spanned};
 use ::syn::Result;
-// use ::syn::*;
-use convert_case::{Case, Casing};
 use proc_macro2::Ident;
 use syn::{
     parse_macro_input, token, Data, DataEnum, DataStruct, DataUnion, DeriveInput, Error, Fields,
@@ -95,6 +93,6 @@ fn field2ros(field_name: &Ident) -> String {
     match field_name.to_string().as_str() {
         "id" => String::from(".id"),
         "nextid" => String::from(".nextid"),
-        name => name.to_case(Case::Kebab),
+        name => name.replace('_', "-"),
     }
 }

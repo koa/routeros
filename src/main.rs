@@ -1,9 +1,13 @@
 use crate::routeros::client::api::ApiClient;
-use crate::routeros::client::Client;
+use crate::routeros::client::{Client, ResourceAccess};
+use crate::routeros::generated::interface::bridge::Bridge;
+use serde::de::Unexpected::Str;
+use std::ops::Deref;
 
 use crate::routeros::generated::interface::bridge::port::BridgePort;
+use crate::routeros::model::{RouterOsApiFieldAccess, RouterOsResource};
 
-mod routeros;
+pub mod routeros;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -26,17 +30,33 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     */
 
     let mut client = ApiClient::new(
-        "10.192.65.14".parse()?,
+        "10.192.65.12".parse()?,
         "dev-api".into(),
         "bz5g2b11gp".into(),
     )
     .await?;
 
-    let ports: Vec<BridgePort> = client.list().await?;
-    for bp in ports {
-        println!("Bridge port: {:?}", bp);
-    }
+    /*
+    let mut ports: Vec<BridgePort> = client.list().await?;
 
+    for bp in ports.iter_mut() {
+        println!("Bridge: {:?}", bp);
+        println!("Modified: {}", bp.is_modified());
+        bp.comment.set(Some(String::from("Hello World")));
+        println!("Modified: {}", bp.is_modified());
+        dump_modifications(bp);
+    }*/
+    let mut bridges: ResourceAccess<Bridge> = client.fetch().await?;
+    let string_value = "switch";
+    let switch =
+        bridges.get_or_default(|b| b.name.as_ref().map(|s| s == string_value).unwrap_or(false));
+    switch.name.set(Some(String::from(string_value)));
+    switch.comment.set(Some(String::from("Hello Comment 2")));
+
+    println!("Switch: {:?}", switch);
+    dump_modifications(switch);
+    bridges.commit(&mut client).await?;
+    println!("Access: {:?}", bridges);
     //for x in sr {
     //    println!("Resource: {}", x);
     //}
@@ -45,4 +65,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     //println!("System Resource: {:#?}", systemResource);
 
     Ok(())
+}
+
+fn dump_modifications<Resource: RouterOsResource>(resource: &Resource) {
+    for modified_entry in resource
+        .fields()
+        .map(|e| (e.0, e.1.modified_value()))
+        .filter(|e| e.1.is_some())
+    {
+        println!("Entry: {}: {:?}", modified_entry.0, modified_entry.1);
+    }
 }
