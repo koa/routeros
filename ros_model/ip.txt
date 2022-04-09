@@ -1,0 +1,10 @@
+/ip/address
+.id
+address: IpNetAddr
+network
+interface
+actual-interface
+invalid: bool
+dynamic: bool
+comment
+disabled: bool

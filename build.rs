@@ -39,7 +39,7 @@ struct OutputField {
 }
 
 fn main() -> std::io::Result<()> {
-    let part_pattern = Regex::new("/([0-9a-z]+)").unwrap();
+    let part_pattern = Regex::new("/([0-9a-z-]+)").unwrap();
     let mut root_module = OutputModule::new();
     let mut open_module: Option<&mut OutputModule> = None;
     let paths = fs::read_dir("ros_model")?;
@@ -85,6 +85,7 @@ fn main() -> std::io::Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated.rs");
     let mut write_handle = BufWriter::new(File::create(dest_path)?);
+    writeln!(write_handle, "#[allow(unused_imports)]")?;
     writeln!(write_handle, "pub mod generated{{")?;
     //writeln!(write_handle, "  pub mod model{{")?;
     let empty_path = vec![];
@@ -93,20 +94,6 @@ fn main() -> std::io::Result<()> {
     writeln!(write_handle, "}}")?;
     println!("cargo:rerun-if-changed=generated.rs");
     std::io::Result::Ok(())
-}
-
-fn expand_enum_name(name: &str) -> Option<String> {
-    let camel_name = name.to_case(Case::UpperCamel);
-    let mut char_iter = camel_name.chars();
-    if let Some(ch) = char_iter.next() {
-        if ch.is_alphabetic() {
-            Some(camel_name)
-        } else {
-            Some(format!("_{camel_name}"))
-        }
-    } else {
-        None
-    }
 }
 
 fn dump_module(
@@ -130,8 +117,10 @@ fn dump_module(
         writeln!(file, "{prefix}use crate::routeros::client::api::RosError;")?;
         writeln!(
             file,
-            "{prefix}use crate::routeros::model::{{Auto, Duration}};"
+            "{prefix}use crate::routeros::model::{{Auto, Duration, IpNetAddr, ValueFormat}};"
         )?;
+        writeln!(file, "{prefix}use mac_address::MacAddress;")?;
+        writeln!(file, "{prefix}use std::collections::HashSet;")?;
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
             writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone)]")?;
@@ -170,7 +159,10 @@ fn dump_module(
             writeln!(file, "{prefix}      unknown => Err(RosError::SimpleMessage(format!(\"unknown enum value: {{unknown}}\")))")?;
             writeln!(file, "{prefix}    }}")?;
             writeln!(file, "{prefix}  }}")?;
-            writeln!(file, "{prefix}  fn to_api(&self) -> String {{")?;
+            writeln!(
+                file,
+                "{prefix}  fn to_api(&self,_:&ValueFormat) -> String {{"
+            )?;
             writeln!(file, "{prefix}    String::from(match self {{")?;
             for value in type_values.values.iter() {
                 if let Some(enum_value) = expand_enum_name(value.as_str()) {
@@ -194,7 +186,7 @@ fn dump_module(
         writeln!(file, "{prefix}pub struct {model_name} {{")?;
         let mut has_id = false;
         for field in module_data.content.iter() {
-            let field_name = name2rust(&field.field_name);
+            let field_name = expand_field_name(&field.field_name);
             let is_id = field.field_name == ".id";
             has_id |= is_id;
             let access = if is_id { "" } else { "pub " };
@@ -234,7 +226,7 @@ fn dump_module(
             "{prefix}    let fields: Vec<(&str, &mut dyn crate::routeros::model::RosFieldAccessor)> = vec!["
         )?;
         for field in module_data.content.iter() {
-            let field_name_rust = name2rust(&field.field_name);
+            let field_name_rust = expand_field_name(&field.field_name);
             writeln!(
                 file,
                 "{prefix}      (\"{field_name}\", &mut self.{field_name_rust}),",
@@ -251,7 +243,7 @@ fn dump_module(
             "{prefix}    let fields: Vec<(&str, &dyn crate::routeros::model::RosFieldAccessor)> = vec!["
         )?;
         for field in module_data.content.iter() {
-            let field_name_rust = name2rust(&field.field_name);
+            let field_name_rust = expand_field_name(&field.field_name);
             writeln!(
                 file,
                 "{prefix}      (\"{field_name}\", &self.{field_name_rust}),",
@@ -265,28 +257,49 @@ fn dump_module(
         writeln!(file, "{prefix}}}")?;
     }
     for (module_name, module_data) in module_data.sub_modules.iter() {
-        writeln!(file, "{prefix}pub mod {module_name} {{")?;
+        writeln!(
+            file,
+            "{prefix}pub mod {module_name} {{",
+            module_name = expand_field_name(module_name)
+        )?;
         dump_module(file, module_data, depth + 1, &module_path, module_name)?;
         writeln!(file, "{prefix}}}")?;
     }
     Ok(())
 }
 
-fn name2rust(string: &String) -> String {
-    let mut field_name = String::new();
-    let mut last_was_masked = true;
+fn expand_enum_name(name: &str) -> Option<String> {
+    Some(name2rust(name, true)).filter(|v| !v.is_empty())
+}
+fn expand_field_name(name: &str) -> String {
+    name2rust(name, false).to_case(Case::Snake)
+}
+
+fn name2rust(string: &str, start_capital: bool) -> String {
+    if string.chars().next() == Some('.') {
+        return name2rust(&string[1..], start_capital);
+    }
+    let mut result = String::new();
+    let mut last_skipped = false;
     for ch in string.chars() {
-        if ch.is_alphanumeric() {
-            field_name.push(ch);
-            last_was_masked = false;
+        if ch.is_alphabetic() {
+            if last_skipped || (start_capital && result.is_empty()) {
+                result.push(ch.to_ascii_uppercase());
+            } else {
+                result.push(ch.to_ascii_lowercase());
+            }
+            last_skipped = false;
+        } else if ch.is_digit(10) {
+            if last_skipped || result.is_empty() {
+                result.push('_');
+            }
+            result.push(ch);
+            last_skipped = false;
         } else {
-            if !last_was_masked {
-                field_name.push('_')
-            };
-            last_was_masked = true;
+            last_skipped = true;
         }
     }
-    field_name
+    result
 }
 
 fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {

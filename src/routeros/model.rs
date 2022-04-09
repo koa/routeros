@@ -1,10 +1,12 @@
-use std::collections::hash_set::Iter;
+use mac_address::MacAddress;
+use mac_address::MacParseError;
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
-use std::iter::Map;
-use std::net::IpAddr;
+use std::net::{AddrParseError, IpAddr, Ipv4Addr};
+use std::num::ParseIntError;
 use std::ops::{Deref, RangeInclusive};
+use std::str::FromStr;
 
 use crate::routeros::client::api::RosError;
 
@@ -17,15 +19,20 @@ where
     current_value: Option<T>,
 }
 
+pub enum ValueFormat {
+    Api,
+    Cli,
+}
+
 pub trait RosValue: Eq {
     type Type;
     type Err: Into<RosError>;
     fn from_api(value: &str) -> Result<Self::Type, Self::Err>;
-    fn to_api(&self) -> String;
+    fn to_api(&self, format: &ValueFormat) -> String;
 }
 
 pub trait RosFieldAccessor {
-    fn modified_value(&self) -> Option<String>;
+    fn modified_value(&self, format: &ValueFormat) -> Option<String>;
     fn set_from_api(&mut self, value: &str) -> Result<(), RosError>;
     fn clear(&mut self) -> Result<(), RosError>;
     fn reset(&mut self) -> Result<(), RosError>;
@@ -52,8 +59,11 @@ where
     pub fn get(&self) -> &Option<T> {
         &self.current_value
     }
-    pub fn set(&mut self, value: Option<T>) {
-        self.current_value = value;
+    pub fn set(&mut self, value: T) {
+        self.current_value = Some(value);
+    }
+    pub fn clear(&mut self) {
+        self.current_value = None;
     }
     pub fn original_value(&self) -> String {
         self.original_value.clone()
@@ -75,7 +85,7 @@ where
     T: RosValue<Type = T> + Eq,
     // Err: Into<RosError>,
 {
-    fn modified_value(&self) -> Option<String> {
+    fn modified_value(&self, format: &ValueFormat) -> Option<String> {
         let original_value = self.original_value_converted();
         if original_value == self.current_value {
             return Option::None;
@@ -83,7 +93,7 @@ where
         let new_value = self
             .current_value
             .as_ref()
-            .map(|v| v.to_api())
+            .map(|v| v.to_api(format))
             .unwrap_or_else(|| String::from(""));
         if new_value.ne(self.original_value.as_str()) {
             Some(new_value)
@@ -161,10 +171,10 @@ where
         Ok(ret)
     }
 
-    fn to_api(&self) -> String {
-        let map: Map<Iter<RV>, fn(&RV) -> String> = self.iter().map(RV::to_api);
+    fn to_api(&self, value_format: &ValueFormat) -> String {
         let mut ret: Option<String> = None;
-        for part in map {
+        for part_ref in self.iter() {
+            let part = part_ref.to_api(value_format);
             if let Some(buffer) = ret.as_mut() {
                 buffer.push(',');
                 buffer.push_str(&part);
@@ -183,8 +193,14 @@ impl RosValue for bool {
         value.parse().map_err(RosError::from)
     }
 
-    fn to_api(&self) -> String {
-        self.to_string()
+    fn to_api(&self, format: &ValueFormat) -> String {
+        match *format {
+            ValueFormat::Api => self.to_string(),
+            ValueFormat::Cli => String::from(match *self {
+                true => "yes",
+                false => "no",
+            }),
+        }
     }
 }
 
@@ -195,7 +211,7 @@ impl RosValue for String {
         Ok(String::from(value))
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         self.clone()
     }
 }
@@ -218,13 +234,13 @@ where
         })
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, format: &ValueFormat) -> String {
         let start = self.start();
         let end = self.end();
         if start == end {
-            start.to_api()
+            start.to_api(format)
         } else {
-            format!("{}-{}", start.to_api(), end.to_api())
+            format!("{}-{}", start.to_api(format), end.to_api(format))
         }
     }
 }
@@ -242,7 +258,7 @@ impl RosValue for u16 {
         .map_err(RosError::from)
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         self.to_string()
     }
 }
@@ -259,7 +275,7 @@ impl RosValue for u8 {
         .map_err(RosError::from)
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         self.to_string()
     }
 }
@@ -276,7 +292,7 @@ impl RosValue for u32 {
         .map_err(RosError::from)
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         self.to_string()
     }
 }
@@ -287,32 +303,129 @@ impl RosValue for u64 {
         value.parse().map_err(RosError::from)
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         self.to_string()
     }
 }
 impl RosValue for Option<u32> {
     type Type = Option<u32>;
-    type Err = RosError;
+    type Err = ParseIntError;
 
     fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
         if value == "none" {
             Ok(Option::None)
         } else if value.starts_with("0x") {
-            u32::from_str_radix(&value[2..], 16)
-                .map(Option::Some)
-                .map_err(RosError::from)
+            u32::from_str_radix(&value[2..], 16).map(Option::Some)
         } else {
-            value.parse().map(Option::Some).map_err(RosError::from)
+            value.parse().map(Option::Some)
         }
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         if let Some(value) = self {
             value.to_string()
         } else {
             String::from("none")
         }
+    }
+}
+
+impl RosValue for IpAddr {
+    type Type = IpAddr;
+    type Err = AddrParseError;
+
+    fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
+        value.parse()
+    }
+
+    fn to_api(&self, _: &ValueFormat) -> String {
+        self.to_string()
+    }
+}
+impl RosValue for MacAddress {
+    type Type = MacAddress;
+    type Err = MacParseError;
+
+    fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
+        value.parse()
+    }
+
+    fn to_api(&self, _: &ValueFormat) -> String {
+        self.to_string()
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct IpNetAddr {
+    ip: IpAddr,
+    netmask: u8,
+}
+
+impl IpNetAddr {
+    pub fn new(ip: IpAddr, netmask: u8) -> IpNetAddr {
+        IpNetAddr { ip, netmask }
+    }
+    pub fn ip(&self) -> &IpAddr {
+        &self.ip
+    }
+    pub fn netmask(&self) -> u8 {
+        self.netmask
+    }
+}
+
+impl Default for IpNetAddr {
+    fn default() -> Self {
+        IpNetAddr {
+            ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            netmask: 0,
+        }
+    }
+}
+
+impl FromStr for IpNetAddr {
+    type Err = RosError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_api(s)
+    }
+}
+
+impl RosValue for IpNetAddr {
+    type Type = IpNetAddr;
+    type Err = RosError;
+
+    fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
+        let mut split = value.split('/');
+        if let Some(ip_addr_string) = split.next() {
+            let ip = IpAddr::from_api(ip_addr_string)?;
+            let netmask: u8 = if let Some(netmask) = split.next() {
+                netmask.parse()?
+            } else {
+                match ip {
+                    IpAddr::V4(_) => 32,
+                    IpAddr::V6(_) => 128,
+                }
+            };
+            if split.next().is_some() {
+                Result::Err(RosError::SimpleMessage(format!(
+                    "Network address has more than 1 '/': {value}"
+                )))
+            } else {
+                Result::Ok(IpNetAddr { ip, netmask })
+            }
+        } else {
+            Result::Err(RosError::SimpleMessage(format!(
+                "Cannot split network address: {value}"
+            )))
+        }
+    }
+
+    fn to_api(&self, _: &ValueFormat) -> String {
+        format!(
+            "{address}/{netmask}",
+            address = self.ip,
+            netmask = self.netmask
+        )
     }
 }
 
@@ -332,10 +445,10 @@ where
         }
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, format: &ValueFormat) -> String {
         match self {
             Auto::Auto => String::from("auto"),
-            Auto::Value(value) => value.to_api(),
+            Auto::Value(value) => value.to_api(format),
         }
     }
 }
@@ -388,7 +501,7 @@ impl RosValue for Duration {
         })
     }
 
-    fn to_api(&self) -> String {
+    fn to_api(&self, _: &ValueFormat) -> String {
         let seconds = self.seconds % 60;
         let minutes = (self.seconds / 60) % 60;
         let hours = self.seconds / 3600;
@@ -433,12 +546,11 @@ pub trait RouterOsResource:
         format!("https://{}/rest/{}", ip_addr, Self::resource_path())
     }
     fn is_modified(&self) -> bool {
-        return self.fields().any(|e| e.1.modified_value().is_some());
+        return self
+            .fields()
+            .any(|e| e.1.modified_value(&ValueFormat::Api).is_some());
     }
 }
-
-//pub trait RouterOsSingleResource: RouterOsResource + DeserializeOwned {}
-//pub trait RouterOsListResource: RouterOsResource + DeserializeOwned {}
 
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/generated.rs"));

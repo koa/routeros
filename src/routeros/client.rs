@@ -1,11 +1,16 @@
+use crate::RosFieldValue;
 use async_trait::async_trait;
+use field_ref::FieldRef;
 use std::collections::HashSet;
 use std::future::Future;
+use std::iter::Chain;
 use std::mem;
+use std::slice::{Iter, IterMut};
 
-use crate::routeros::model::RouterOsResource;
+use crate::routeros::model::{RosValue, RouterOsResource};
 
 pub mod api;
+pub mod config;
 
 #[async_trait]
 pub trait Client<Error>
@@ -29,12 +34,14 @@ where
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), Error>
     where
         Resource: RouterOsResource;
-
-    async fn get<Resource>(&self) -> Result<Resource, Error>
+    async fn add<Resource>(&mut self, resource: Resource) -> Result<(), Error>
+    where
+        Resource: RouterOsResource;
+    async fn delete<Resource>(&mut self, key: &str) -> Result<(), Error>
     where
         Resource: RouterOsResource;
 }
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ResourceAccess<Resource>
 where
     Resource: RouterOsResource,
@@ -102,6 +109,19 @@ where
         let last: Option<&'a mut R> = self.new_data.last_mut();
         last.unwrap()
     }
+    pub fn get_or_create_by_value<V>(
+        &mut self,
+        field: &FieldRef<R, RosFieldValue<V>>,
+        value: V,
+    ) -> &mut R
+    where
+        V: RosValue<Type = V>,
+    {
+        let entry =
+            self.get_or_default(|b| field.get(b).as_ref().map(|s| s == &value).unwrap_or(false));
+        field.get_mut(entry).set(value);
+        entry
+    }
     pub fn commit<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
@@ -116,12 +136,25 @@ where
             .filter(|e| (*e).is_modified())
             .map(|e| e.clone())
             .collect();
+        let new_entries: Vec<R> = self.new_data.iter().map(R::clone).collect();
+        let remove_entries = self.remove_data.clone();
         async {
+            for key in remove_entries {
+                client.delete::<R>(&key).await?;
+            }
             for update_entry in modified_entries {
-                let x = client.update(update_entry);
-                x.await?;
+                client.update(update_entry).await?;
+            }
+            for new_entry in new_entries {
+                client.add(new_entry).await?;
             }
             Ok(())
         }
+    }
+    pub fn iter(&self) -> Chain<Iter<'_, R>, Iter<'_, R>> {
+        self.fetched_data.iter().chain(self.new_data.iter())
+    }
+    pub fn iter_mut(&mut self) -> Chain<IterMut<'_, R>, IterMut<'_, R>> {
+        self.fetched_data.iter_mut().chain(self.new_data.iter_mut())
     }
 }

@@ -5,17 +5,18 @@ use std::convert::Infallible;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::num::ParseIntError;
 use std::str::ParseBoolError;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mac_address::MacParseError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::routeros::model::RouterOsResource;
-use crate::Client;
+use crate::{Client, ValueFormat};
 
 #[derive(Debug)]
 pub enum RosError {
@@ -23,6 +24,8 @@ pub enum RosError {
     SimpleMessage(String),
     ParseIntError(ParseIntError),
     ParseBoolError(ParseBoolError),
+    AddrParseError(AddrParseError),
+    MacParseError(MacParseError),
     Umbrella(Vec<RosError>),
     FieldWriteError {
         field_name: String,
@@ -38,6 +41,8 @@ impl Display for RosError {
             RosError::SimpleMessage(msg) => f.write_str(msg),
             RosError::ParseIntError(e) => std::fmt::Display::fmt(&e, f),
             RosError::ParseBoolError(e) => std::fmt::Display::fmt(&e, f),
+            RosError::AddrParseError(e) => std::fmt::Display::fmt(&e, f),
+            RosError::MacParseError(e) => std::fmt::Display::fmt(&e, f),
             RosError::Umbrella(errors) => {
                 for error in errors {
                     std::fmt::Display::fmt(&error, f)?;
@@ -70,6 +75,16 @@ impl From<ParseIntError> for RosError {
 impl From<ParseBoolError> for RosError {
     fn from(e: ParseBoolError) -> Self {
         RosError::ParseBoolError(e)
+    }
+}
+impl From<AddrParseError> for RosError {
+    fn from(e: AddrParseError) -> Self {
+        RosError::AddrParseError(e)
+    }
+}
+impl From<MacParseError> for RosError {
+    fn from(e: MacParseError) -> Self {
+        RosError::MacParseError(e)
     }
 }
 
@@ -596,7 +611,7 @@ impl Client<RosError> for ApiClient {
 
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
-        Resource: RouterOsResource + Send,
+        Resource: RouterOsResource,
     {
         {
             let mut request: Vec<ApiWord> = Vec::new();
@@ -610,7 +625,7 @@ impl Client<RosError> for ApiClient {
             }
             resource
                 .fields()
-                .filter_map(|f| f.1.modified_value().map(|v| (f.0, v)))
+                .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0, v)))
                 .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
 
             let x = self.api.talk_vec(request).await?;
@@ -618,11 +633,34 @@ impl Client<RosError> for ApiClient {
             Ok(())
         }
     }
-
-    async fn get<Resource>(&self) -> Result<Resource, RosError>
+    async fn add<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsResource,
     {
-        todo!()
+        let mut request: Vec<ApiWord> = Vec::new();
+        let path = Resource::resource_path();
+
+        request.push(ApiWord::command(format!("{}/add", path)));
+        resource
+            .fields()
+            .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0, v)))
+            .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
+
+        let x = self.api.talk_vec(request).await?;
+        println!("Result: {:?}", x);
+        Ok(())
+    }
+    async fn delete<Resource>(&mut self, key: &str) -> Result<(), RosError>
+    where
+        Resource: RouterOsResource,
+    {
+        let mut request: Vec<ApiWord> = Vec::new();
+        let path = Resource::resource_path();
+
+        request.push(ApiWord::command(format!("{}/remove", path)));
+        request.push(ApiWord::attribute(".id", key.to_string()));
+        let x = self.api.talk_vec(request).await?;
+        println!("Result: {:?}", x);
+        Ok(())
     }
 }

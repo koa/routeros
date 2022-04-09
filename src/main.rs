@@ -1,9 +1,9 @@
 use crate::routeros::client::api::ApiClient;
+use crate::routeros::client::config::ConfigClient;
 use crate::routeros::client::{Client, ResourceAccess};
 use crate::routeros::generated::interface::bridge::Bridge;
-use crate::routeros::generated::system::resource::Resource;
-
-use crate::routeros::model::RouterOsResource;
+use crate::routeros::model::{RosFieldValue, RouterOsResource, ValueFormat};
+use field_ref::field_ref_of;
 
 pub mod routeros;
 
@@ -43,27 +43,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         dump_modifications(bp);
     }*/
 
-    let mut system: ResourceAccess<Resource> = client.fetch().await?;
-    let system_resource = system.get_or_default(|_| true);
-    println!("System resource: {:?}", system_resource);
-    let mut bridges: ResourceAccess<Bridge> = client.fetch().await?;
+    //let name = Some(String::from("loopback"));
+    let mut data: ResourceAccess<Bridge> = client.fetch().await?;
+    //data.remove(|b| b.name.get() == &name);
+    let loopback =
+        data.get_or_create_by_value(&field_ref_of!(Bridge => name), String::from("loopback"));
+    loopback.comment.set(String::from("Kommentar 2"));
+    //loopback.comment.clear();
+    loopback.disabled.set(false);
 
-    let string_value = "switch";
-    let switch =
-        bridges.get_or_default(|b| b.name.as_ref().map(|s| s == string_value).unwrap_or(false));
-    switch.name.set(Some(String::from(string_value)));
-    switch.comment.set(Some(String::from("Hello Comment 2")));
+    let mut config = ConfigClient::new();
 
-    println!("Switch: {:?}", switch);
-    dump_modifications(switch);
-    bridges.commit(&mut client).await?;
-    println!("Access: {:?}", bridges);
-    //for x in sr {
-    //    println!("Resource: {}", x);
+    data.commit(&mut config).await?;
+    println!("Update cmd: \n{}", config.to_string());
+    //for row in data.iter() {
+    //    println!("Row: {:?}", row);
     //}
-
-    //let systemResource: SystemResource = client.get().await?;
-    //println!("System Resource: {:#?}", systemResource);
 
     Ok(())
 }
@@ -71,7 +66,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 fn dump_modifications<Resource: RouterOsResource>(resource: &Resource) {
     for modified_entry in resource
         .fields()
-        .map(|e| (e.0, e.1.modified_value()))
+        .map(|e| (e.0, e.1.modified_value(&ValueFormat::Api)))
         .filter(|e| e.1.is_some())
     {
         println!("Entry: {}: {:?}", modified_entry.0, modified_entry.1);
