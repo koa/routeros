@@ -565,7 +565,7 @@ impl Client<RosError> for ApiClient {
                         .unwrap()
                         .get_mut()
                         .fields_mut()
-                        .find(|e| e.0.eq(key.as_str()))
+                        .find(|e| e.0.name.eq(key.as_str()))
                         .map(|e| e.1)
                     {
                         field_accessor.set_from_api(value.as_str()).map_err(|e| {
@@ -618,14 +618,15 @@ impl Client<RosError> for ApiClient {
             let path = Resource::resource_path();
 
             request.push(ApiWord::command(format!("{}/set", path)));
-            if let Some(id_field) = Resource::id_field() {
-                if let Some(id_value) = resource.id_value() {
-                    request.push(ApiWord::attribute(id_field, id_value));
-                }
+            if let Some((description, value)) = resource.id_field() {
+                request.push(ApiWord::attribute(
+                    description.name,
+                    value.api_value(&ValueFormat::Api),
+                ));
             }
             resource
                 .fields()
-                .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0, v)))
+                .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0.name, v)))
                 .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
 
             let x = self.api.talk_vec(request).await?;
@@ -643,24 +644,28 @@ impl Client<RosError> for ApiClient {
         request.push(ApiWord::command(format!("{}/add", path)));
         resource
             .fields()
-            .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0, v)))
+            .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0.name, v)))
             .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
 
         let x = self.api.talk_vec(request).await?;
         println!("Result: {:?}", x);
         Ok(())
     }
-    async fn delete<Resource>(&mut self, key: &str) -> Result<(), RosError>
+    async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsResource,
     {
         let mut request: Vec<ApiWord> = Vec::new();
-        let path = Resource::resource_path();
-
-        request.push(ApiWord::command(format!("{}/remove", path)));
-        request.push(ApiWord::attribute(".id", key.to_string()));
-        let x = self.api.talk_vec(request).await?;
-        println!("Result: {:?}", x);
+        if let Some((description, value)) = resource.id_field() {
+            let value = value.api_value(&ValueFormat::Api);
+            let path = Resource::resource_path();
+            request.push(ApiWord::command(format!("{}/remove", path)));
+            request.push(ApiWord::attribute(description.name, value));
+        }
+        if !request.is_empty() {
+            let x = self.api.talk_vec(request).await?;
+            println!("Result: {:?}", x);
+        }
         Ok(())
     }
 }

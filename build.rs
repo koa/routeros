@@ -36,6 +36,8 @@ struct Enum {
 struct OutputField {
     field_name: String,
     field_type: String,
+    id: bool,
+    read_only: bool,
 }
 
 fn main() -> std::io::Result<()> {
@@ -117,7 +119,7 @@ fn dump_module(
         writeln!(file, "{prefix}use crate::routeros::client::api::RosError;")?;
         writeln!(
             file,
-            "{prefix}use crate::routeros::model::{{Auto, Duration, IpNetAddr, ValueFormat}};"
+            "{prefix}use crate::routeros::model::{{Auto, Duration, IpNetAddr, ValueFormat, FieldDescription}};"
         )?;
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
@@ -182,13 +184,21 @@ fn dump_module(
             writeln!(file, "{prefix}}}")?;
         }
 
+        for field in module_data.content.iter() {
+            let fd_name = field_description_name(&field.field_name);
+            writeln!(file, "{prefix}const {fd_name}:crate::routeros::model::FieldDescription=crate::routeros::model::FieldDescription{{")?;
+            writeln!(file, "{prefix}  name:\"{}\",", field.field_name)?;
+            writeln!(file, "{prefix}  is_read_only:{},", field.read_only)?;
+            writeln!(file, "{prefix}  is_id:{},", field.id)?;
+            writeln!(file, "{prefix}}};")?;
+        }
         writeln!(file, "{prefix}#[derive(Debug, Default, Clone)]")?;
         writeln!(file, "{prefix}pub struct {model_name} {{")?;
-        let mut has_id = false;
+        //let mut has_id = false;
         for field in module_data.content.iter() {
             let field_name = expand_field_name(&field.field_name);
             let is_id = field.field_name == ".id";
-            has_id |= is_id;
+            //has_id |= is_id;
             let access = if is_id { "" } else { "pub " };
             writeln!(
                 file,
@@ -206,6 +216,7 @@ fn dump_module(
         writeln!(file, "{prefix}     \"{module_path}\"")?;
         writeln!(file, "{prefix}    }}")?;
 
+        /*
         if has_id {
             writeln!(file, "{prefix}   fn id_field() -> Option<&'static str> {{")?;
             writeln!(file, "{prefix}     Option::Some(\".id\")")?;
@@ -213,42 +224,40 @@ fn dump_module(
             writeln!(file, "{prefix}   fn id_value(&self) -> Option<String> {{")?;
             writeln!(file, "{prefix}     Option::Some( self.id.original_value())")?;
             writeln!(file, "{prefix}    }}")?;
-        }
+        }*/
         writeln!(file, "{prefix}}}")?;
         writeln!(
             file,
             "{prefix}impl crate::routeros::model::RouterOsApiFieldAccess for {model_name} {{"
         )?;
-        writeln!(file, "{prefix}  fn fields_mut(&mut self) -> Box<dyn Iterator<Item = (&str, &mut dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
+        writeln!(file, "{prefix}  fn fields_mut(&mut self) -> Box<dyn Iterator<Item = (&'static crate::routeros::model::FieldDescription, &mut dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
 
         writeln!(
             file,
-            "{prefix}    let fields: Vec<(&str, &mut dyn crate::routeros::model::RosFieldAccessor)> = vec!["
+            "{prefix}    let fields: Vec<(&'static crate::routeros::model::FieldDescription, &mut dyn crate::routeros::model::RosFieldAccessor)> = vec!["
         )?;
         for field in module_data.content.iter() {
             let field_name_rust = expand_field_name(&field.field_name);
+            let fd_name = field_description_name(&field.field_name);
             writeln!(
                 file,
-                "{prefix}      (\"{field_name}\", &mut self.{field_name_rust}),",
-                field_name = &field.field_name
+                "{prefix}      (&{fd_name}, &mut self.{field_name_rust}),"
             )?;
         }
         writeln!(file, "{prefix}    ];")?;
         writeln!(file, "{prefix}    Box::new(fields.into_iter())")?;
         writeln!(file, "{prefix}  }}")?;
-        writeln!(file, "{prefix}  fn fields(&self) -> Box<dyn Iterator<Item = (&str, &dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
+
+        writeln!(file, "{prefix}  fn fields(&self) -> Box<dyn Iterator<Item = (&'static crate::routeros::model::FieldDescription, &dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
 
         writeln!(
             file,
-            "{prefix}    let fields: Vec<(&str, &dyn crate::routeros::model::RosFieldAccessor)> = vec!["
+            "{prefix}    let fields: Vec<(&'static crate::routeros::model::FieldDescription, &dyn crate::routeros::model::RosFieldAccessor)> = vec!["
         )?;
         for field in module_data.content.iter() {
             let field_name_rust = expand_field_name(&field.field_name);
-            writeln!(
-                file,
-                "{prefix}      (\"{field_name}\", &self.{field_name_rust}),",
-                field_name = &field.field_name
-            )?;
+            let fd_name = field_description_name(&field.field_name);
+            writeln!(file, "{prefix}      (&{fd_name}, &self.{field_name_rust}),")?;
         }
         writeln!(file, "{prefix}   ];")?;
         writeln!(file, "{prefix}   Box::new(fields.into_iter())")?;
@@ -303,13 +312,18 @@ fn name2rust(string: &str, start_capital: bool) -> String {
 }
 
 fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
-    let mut char_iter = line.chars().into_iter();
+    let mut chars = line.chars();
     let mut field_name = String::new();
+    let mut is_id = false;
+    let mut is_read_only = false;
     loop {
-        match char_iter.next() {
+        match chars.next() {
             None => break,
             Some(ch) if ch == ':' => break,
-            Some(ch) => field_name.push(ch),
+            Some('*') if field_name.is_empty() => is_id = true,
+            Some('!') if field_name.is_empty() => is_read_only = true,
+            Some(ch) if !ch.is_whitespace() => field_name.push(ch),
+            Some(_) => {}
         }
     }
     let field_type = Mutex::new(RefCell::new(String::new()));
@@ -325,7 +339,7 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
         field_type.clear();
     };
     loop {
-        match char_iter.next() {
+        match chars.next() {
             None => break,
             Some(ch) if ch == ',' => {
                 push_to_components();
@@ -344,6 +358,8 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             OutputField {
                 field_name: String::from(trimmed_name),
                 field_type: String::from("String"),
+                id: is_id,
+                read_only: is_read_only,
             },
             None,
         ));
@@ -354,6 +370,8 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             OutputField {
                 field_name: String::from(trimmed_name),
                 field_type: trimmed_type,
+                id: is_id,
+                read_only: is_read_only,
             },
             None,
         ))
@@ -362,10 +380,18 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             OutputField {
                 field_name: String::from(trimmed_name),
                 field_type: trimmed_name.to_case(Case::UpperCamel),
+                id: is_id,
+                read_only: is_read_only,
             },
             Some(Enum {
                 values: field_type_components,
             }),
         ))
     };
+}
+fn field_description_name(field_name: &str) -> String {
+    format!(
+        "{}_FIELD_DESCRIPTION",
+        expand_field_name(&field_name).to_ascii_uppercase()
+    )
 }

@@ -24,8 +24,8 @@ where
         let fetched_data: Vec<Resource> = self.list().await?;
         Ok(ResourceAccess {
             fetched_data,
-            new_data: vec![],
-            remove_data: HashSet::new(),
+            new_data: Vec::new(),
+            remove_data: Vec::new(),
         })
     }
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, Error>
@@ -37,7 +37,7 @@ where
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), Error>
     where
         Resource: RouterOsResource;
-    async fn delete<Resource>(&mut self, key: &str) -> Result<(), Error>
+    async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), Error>
     where
         Resource: RouterOsResource;
 }
@@ -48,7 +48,7 @@ where
 {
     fetched_data: Vec<Resource>,
     new_data: Vec<Resource>,
-    remove_data: HashSet<String>,
+    remove_data: Vec<Resource>,
 }
 
 // unsafe impl<R> Send for ResourceAccess<R> where R: RouterOsResource {}
@@ -69,12 +69,7 @@ where
         mem::swap(&mut self.fetched_data, &mut fetched_data);
         let (remove, keep): (Vec<R>, Vec<R>) = fetched_data.into_iter().partition(filter);
         self.fetched_data = keep;
-        for rem in remove {
-            let found_id_field = rem.id_value();
-            if let Some(key) = found_id_field {
-                self.remove_data.insert(key);
-            }
-        }
+        self.remove_data.extend(remove);
     }
     pub fn find_mut<P>(&mut self, filter: P) -> Vec<&mut R>
     where
@@ -139,8 +134,8 @@ where
         let new_entries: Vec<R> = self.new_data.iter().map(R::clone).collect();
         let remove_entries = self.remove_data.clone();
         async {
-            for key in remove_entries {
-                client.delete::<R>(&key).await?;
+            for remove_entry in remove_entries {
+                client.delete(remove_entry).await?;
             }
             for update_entry in modified_entries {
                 client.update(update_entry).await?;

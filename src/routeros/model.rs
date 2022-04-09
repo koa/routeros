@@ -33,9 +33,11 @@ pub trait RosValue: Eq {
 
 pub trait RosFieldAccessor {
     fn modified_value(&self, format: &ValueFormat) -> Option<String>;
+    fn api_value(&self, format: &ValueFormat) -> String;
     fn set_from_api(&mut self, value: &str) -> Result<(), RosError>;
     fn clear(&mut self) -> Result<(), RosError>;
     fn reset(&mut self) -> Result<(), RosError>;
+    fn has_value(&self) -> bool;
 }
 impl<T> Display for RosFieldValue<T>
 where
@@ -90,16 +92,19 @@ where
         if original_value == self.current_value {
             return Option::None;
         }
-        let new_value = self
-            .current_value
-            .as_ref()
-            .map(|v| v.to_api(format))
-            .unwrap_or_else(|| String::from(""));
+        let new_value = self.api_value(format);
         if new_value.ne(self.original_value.as_str()) {
             Some(new_value)
         } else {
             None
         }
+    }
+
+    fn api_value(&self, format: &ValueFormat) -> String {
+        self.current_value
+            .as_ref()
+            .map(|v| v.to_api(format))
+            .unwrap_or_else(|| String::from(""))
     }
 
     fn set_from_api(&mut self, value: &str) -> Result<(), RosError> {
@@ -120,6 +125,10 @@ where
                 Some(T::from_api(self.original_value.as_str()).map_err(|e| e.into())?);
         }
         Ok(())
+    }
+
+    fn has_value(&self) -> bool {
+        self.current_value.is_some()
     }
 }
 
@@ -526,22 +535,25 @@ where
         V: ToString;
     fn build(self) -> R;
 }
-
+pub struct FieldDescription {
+    pub name: &'static str,
+    pub is_read_only: bool,
+    pub is_id: bool,
+}
 pub trait RouterOsApiFieldAccess {
-    fn fields_mut(&mut self) -> Box<dyn Iterator<Item = (&str, &mut dyn RosFieldAccessor)> + '_>;
-    fn fields(&self) -> Box<dyn Iterator<Item = (&str, &dyn RosFieldAccessor)> + '_>;
+    fn fields_mut(
+        &mut self,
+    ) -> Box<dyn Iterator<Item = (&'static FieldDescription, &mut dyn RosFieldAccessor)> + '_>;
+    fn fields(
+        &self,
+    ) -> Box<dyn Iterator<Item = (&'static FieldDescription, &dyn RosFieldAccessor)> + '_>;
 }
 
 pub trait RouterOsResource:
     Sized + Debug + Send + Default + RouterOsApiFieldAccess + Clone
 {
     fn resource_path() -> &'static str;
-    fn id_field() -> Option<&'static str> {
-        Option::None
-    }
-    fn id_value(&self) -> Option<String> {
-        Option::None
-    }
+
     fn resource_url(ip_addr: IpAddr) -> String {
         format!("https://{}/rest/{}", ip_addr, Self::resource_path())
     }
@@ -549,6 +561,11 @@ pub trait RouterOsResource:
         return self
             .fields()
             .any(|e| e.1.modified_value(&ValueFormat::Api).is_some());
+    }
+    fn id_field(&self) -> Option<(&'static FieldDescription, &dyn RosFieldAccessor)> {
+        self.fields()
+            .filter(|(description, value)| description.is_id && value.has_value())
+            .next()
     }
 }
 

@@ -2,8 +2,10 @@ use crate::routeros::client::api::ApiClient;
 use crate::routeros::client::config::ConfigClient;
 use crate::routeros::client::{Client, ResourceAccess};
 use crate::routeros::generated::interface::bridge::Bridge;
+use crate::routeros::generated::interface::ethernet::Ethernet;
 use crate::routeros::model::{RosFieldValue, RouterOsResource, ValueFormat};
 use field_ref::field_ref_of;
+use serde::de::Unexpected::Str;
 
 pub mod routeros;
 
@@ -44,15 +46,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }*/
 
     //let name = Some(String::from("loopback"));
-    let mut data: ResourceAccess<Bridge> = client.fetch().await?;
-    //data.remove(|b| b.name.get() == &name);
-    let loopback =
-        data.get_or_create_by_value(&field_ref_of!(Bridge => name), String::from("loopback"));
-    loopback.comment.set(String::from("Kommentar 2"));
-    //loopback.comment.clear();
-    loopback.disabled.set(false);
-
     let mut config = ConfigClient::new();
+    let mut data: ResourceAccess<Ethernet> = config.fetch().await?;
+    //data.remove(|b| b.name.get() == &name);
+    let fields: [(&str, &str); 1] = [("ether1", "e01-uplink")];
+    for (dfn_name, curr_name) in fields {
+        data.get_or_create_by_value(
+            &field_ref_of!(Ethernet => default_name),
+            String::from(dfn_name),
+        )
+        .name
+        .set(String::from(curr_name));
+    }
 
     data.commit(&mut config).await?;
     println!("Update cmd: \n{}", config.to_string());
@@ -69,6 +74,6 @@ fn dump_modifications<Resource: RouterOsResource>(resource: &Resource) {
         .map(|e| (e.0, e.1.modified_value(&ValueFormat::Api)))
         .filter(|e| e.1.is_some())
     {
-        println!("Entry: {}: {:?}", modified_entry.0, modified_entry.1);
+        println!("Entry: {}: {:?}", modified_entry.0.name, modified_entry.1);
     }
 }

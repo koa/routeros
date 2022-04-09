@@ -32,7 +32,7 @@ impl ConfigClient {
             .fields()
             .filter_map(|f| {
                 f.1.modified_value(&ValueFormat::Cli)
-                    .map(|v| (f.0, quote_routeros(&v)))
+                    .map(|v| (f.0.name, quote_routeros(&v)))
             })
             .for_each(|(key, value)| self.output.push_str(&format!(" {key}={value}")));
     }
@@ -72,13 +72,15 @@ impl Client<RosError> for ConfigClient {
     where
         Resource: RouterOsResource,
     {
-        if let (Some(id_field), Some(id_value)) = (Resource::id_field(), resource.id_value()) {
+        if let Some((description, value)) = resource.id_field() {
+            let key = description.name;
+            let value = quote_routeros(&value.api_value(&ValueFormat::Cli));
             if resource.is_modified() {
                 self.ensure_context(Resource::resource_path());
                 self.output.push_str("set");
                 self.append_modified_fields(&resource);
                 self.output
-                    .push_str(&format!(" [find where {id_field}={id_value}]\n"));
+                    .push_str(&format!(" [find where {key}={value}]\n"));
             }
         }
         ready(Ok(())).await
@@ -97,13 +99,17 @@ impl Client<RosError> for ConfigClient {
         ready(Ok(())).await
     }
 
-    async fn delete<Resource>(&mut self, key: &str) -> Result<(), RosError>
+    async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsResource,
     {
-        self.ensure_context(Resource::resource_path());
-        self.output
-            .push_str(&format!("remove [find where .id={key}]\n"));
+        if let Some((description, value)) = resource.id_field() {
+            let key = description.name;
+            let value = quote_routeros(&value.api_value(&ValueFormat::Cli));
+            self.ensure_context(Resource::resource_path());
+            self.output
+                .push_str(&format!("remove [find where {key}={value}]\n"));
+        }
         ready(Ok(())).await
     }
 }
