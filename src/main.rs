@@ -1,18 +1,14 @@
 use crate::routeros::client::api::ApiClient;
 use crate::routeros::client::{Client, ResourceAccess};
 use crate::routeros::generated::interface::bridge::Bridge;
-use serde::de::Unexpected::Str;
-use std::ops::Deref;
+use crate::routeros::generated::system::resource::Resource;
 
-use crate::routeros::generated::interface::bridge::port::BridgePort;
-use crate::routeros::model::{RouterOsApiFieldAccess, RouterOsResource};
+use crate::routeros::model::RouterOsResource;
 
 pub mod routeros;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    println!("Start");
-
     //    let x = Ok(Some(true));
     /*
         let conn = ClientBuilder::new()
@@ -46,7 +42,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("Modified: {}", bp.is_modified());
         dump_modifications(bp);
     }*/
+
+    let mut system: ResourceAccess<Resource> = client.fetch().await?;
+    let system_resource = system.get_or_default(|_| true);
+    println!("System resource: {:?}", system_resource);
     let mut bridges: ResourceAccess<Bridge> = client.fetch().await?;
+
     let string_value = "switch";
     let switch =
         bridges.get_or_default(|b| b.name.as_ref().map(|s| s == string_value).unwrap_or(false));

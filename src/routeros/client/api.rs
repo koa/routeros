@@ -17,27 +17,6 @@ use tokio::net::TcpStream;
 use crate::routeros::model::RouterOsResource;
 use crate::Client;
 
-/*
-fn hex_binascii<'a>(hexstr: &str) -> Result<Vec<u8>, &'a str> {
-    if hexstr.len() % 2 != 0 {
-        Err("Odd number of characters")
-    } else {
-        let mut result: Vec<u8> = Vec::new();
-        let mut i = 0;
-        let c_hexstr: Vec<char> = hexstr.chars().collect();
-        while i < c_hexstr.len() - 1 {
-            let top = c_hexstr[i].to_digit(16).unwrap() as u8;
-            let bottom = c_hexstr[i + 1].to_digit(16).unwrap() as u8;
-            let r = (top << 4) + bottom;
-
-            result.push(r);
-
-            i += 2;
-        }
-        Ok(result)
-    }
-}
-*/
 #[derive(Debug)]
 pub enum RosError {
     TokioError(tokio::io::Error),
@@ -391,7 +370,9 @@ impl<'a> ApiRos {
     async fn read_word(&mut self) -> Result<Option<ApiWord>, RosError> {
         let token = self.read_token().await?;
         let parsed = ApiWord::parse(&token);
-        println!(">>> {:?}", parsed);
+        if cfg!(debug) {
+            println!(">>> {:?}", parsed);
+        }
         Ok(parsed)
     }
 
@@ -405,8 +386,9 @@ impl<'a> ApiRos {
     }
 
     async fn write_word(&mut self, w: &ApiWord) -> Result<(), RosError> {
-        println!("<<< {:?}", w);
-
+        if cfg!(debug) {
+            println!("<<< {:?}", w);
+        }
         let token = w.encode();
         self.write_token(&token).await?;
         Ok(())
@@ -428,7 +410,9 @@ impl<'a> ApiRos {
             ret += 1;
         }
         self.write_len(0).await?;
-        println!("====================");
+        if cfg!(debug) {
+            println!("====================");
+        }
         Ok(ret)
     }
 
@@ -496,7 +480,9 @@ impl<'a> ApiRos {
                 ApiWord::attribute("password", pwd),
             ])
             .await?;
-        println!("Login response: {:?}", login_response);
+        if cfg!(debug) {
+            println!("Login response: {:?}", login_response);
+        }
 
         return if let Some(ApiWord::Reply(ApiReplyType::Done)) = login_response.get(0) {
             Ok(true)
@@ -540,12 +526,6 @@ impl ApiClient {
             .map_err(|e| RosError::TokioError(e))?;
         let mut api: ApiRos = ApiRos::new(stream);
         api.login(username, password).await?;
-
-        let ports = api
-            .talk_vec([ApiWord::command("system/resource/print")])
-            .await?;
-        println!("Ports: \n{:?}", ports);
-
         Ok(ApiClient { api })
     }
 }

@@ -2,15 +2,10 @@ use async_trait::async_trait;
 use std::collections::HashSet;
 use std::future::Future;
 use std::mem;
-use std::ops::Deref;
-use std::sync::{Arc, Mutex};
 
-pub use http::HttpClient;
-
-use crate::routeros::model::{RosFieldAccessor, RosFieldValue, RosValue, RouterOsResource};
+use crate::routeros::model::RouterOsResource;
 
 pub mod api;
-pub mod http;
 
 #[async_trait]
 pub trait Client<Error>
@@ -21,8 +16,9 @@ where
     where
         Resource: RouterOsResource,
     {
+        let fetched_data: Vec<Resource> = self.list().await?;
         Ok(ResourceAccess {
-            fetched_data: self.list().await?,
+            fetched_data,
             new_data: vec![],
             remove_data: HashSet::new(),
         })
@@ -47,6 +43,8 @@ where
     new_data: Vec<Resource>,
     remove_data: HashSet<String>,
 }
+
+// unsafe impl<R> Send for ResourceAccess<R> where R: RouterOsResource {}
 
 impl<R> ResourceAccess<R>
 where

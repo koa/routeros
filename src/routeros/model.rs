@@ -8,11 +8,6 @@ use std::ops::{Deref, RangeInclusive};
 
 use crate::routeros::client::api::RosError;
 
-pub mod system;
-
-#[cfg(test)]
-mod tests;
-
 #[derive(Debug, Default, Clone)]
 pub struct RosFieldValue<T>
 where

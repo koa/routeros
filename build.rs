@@ -2,12 +2,13 @@ use convert_case::{Case, Casing};
 use regex::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::env;
+use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
+use std::{env, fs};
 
 #[derive(Debug)]
 struct OutputModule {
@@ -38,42 +39,48 @@ struct OutputField {
 }
 
 fn main() -> std::io::Result<()> {
-    let src_file = BufReader::new(File::open("src/routeros/model/bridge.txt")?);
-    let mut line_iter = src_file.lines();
     let part_pattern = Regex::new("/([0-9a-z]+)").unwrap();
     let mut root_module = OutputModule::new();
     let mut open_module: Option<&mut OutputModule> = None;
-    loop {
-        match line_iter.next() {
-            Some(Ok(line)) => {
-                if line.starts_with("/") {
-                    let mut current_module = &mut root_module;
-                    for part in part_pattern.find_iter(line.as_str()) {
-                        let match_str = part.as_str();
-                        if match_str.len() < 2 {
-                            continue;
+    let paths = fs::read_dir("ros_model")?;
+    let input_file_extension = Option::Some("txt");
+    for src_filename in paths
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|f| input_file_extension.eq(&f.extension().and_then(OsStr::to_str)))
+    {
+        let src_file = BufReader::new(File::open(&src_filename)?);
+        let mut line_iter = src_file.lines();
+        loop {
+            match line_iter.next() {
+                Some(Ok(line)) => {
+                    if line.starts_with("/") {
+                        let mut current_module = &mut root_module;
+                        for part in part_pattern.find_iter(line.as_str()) {
+                            let match_str = part.as_str();
+                            if match_str.len() < 2 {
+                                continue;
+                            }
+                            let comp_name: String = match_str.chars().skip(1).collect();
+                            current_module = current_module
+                                .sub_modules
+                                .entry(comp_name)
+                                .or_insert(OutputModule::new());
                         }
-                        let comp_name: String = match_str.chars().skip(1).collect();
-                        current_module = current_module
-                            .sub_modules
-                            .entry(comp_name)
-                            .or_insert(OutputModule::new());
-                    }
-                    open_module = Some(current_module);
-                } else if let Some(current_module) = &mut open_module {
-                    if let Some((field, optional_enum)) = parse_field_line(line) {
-                        if let Some(e) = optional_enum {
-                            current_module.enums.insert(field.field_type.clone(), e);
+                        open_module = Some(current_module);
+                    } else if let Some(current_module) = &mut open_module {
+                        if let Some((field, optional_enum)) = parse_field_line(line) {
+                            if let Some(e) = optional_enum {
+                                current_module.enums.insert(field.field_type.clone(), e);
+                            }
+                            current_module.content.push(field);
                         }
-                        current_module.content.push(field);
                     }
                 }
+                _ => break,
             }
-            _ => break,
         }
     }
-    //println!("Tree: {:#?}", root_module);
-    // let mut current_struct: Box<String> = Box::new(str::to_string(""));
 
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated.rs");
