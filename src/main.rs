@@ -1,17 +1,21 @@
 use crate::routeros::client::api::ApiClient;
 use crate::routeros::client::config::{ConfigClient, RosModel};
 use crate::routeros::client::{Client, ResourceListAccess};
+use crate::routeros::generated::interface::bridge::port::BridgePort;
 use crate::routeros::generated::interface::bridge::Bridge;
+use crate::routeros::generated::interface::ethernet::switch::egress_vlan_tag::EthernetSwitchEgressVlanTag;
 use crate::routeros::generated::interface::ethernet::switch::ingress_vlan_translation::EthernetSwitchIngressVlanTranslation;
 use crate::routeros::generated::interface::ethernet::switch::vlan::EthernetSwitchVlan;
 use crate::routeros::generated::interface::ethernet::Ethernet;
 use crate::routeros::generated::interface::wireless::Wireless;
 use crate::routeros::generated::system::identity::Identity;
-use crate::routeros::model::{RosFieldValue, RouterOsResource, ValueFormat};
+use crate::routeros::model::{
+    FieldDescription, RosFieldAccessor, RosFieldValue, RouterOsResource, ValueFormat,
+};
 use field_ref::field_ref_of;
 use serde::de::Unexpected::Str;
+use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
-use std::process::id;
 
 pub mod routeros;
 
@@ -53,8 +57,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     //let name = Some(String::from("loopback"));
     let mut config = ConfigClient::with_default_config(RosModel::Crs109).await?;
-    let mut ethernet: ResourceListAccess<Ethernet> = config.fetch().await?;
+    let mut ethernet = client.fetch::<Ethernet>().await?;
+    let mut bridge = client.fetch::<Bridge>().await?;
+    let mut bridge_port = client.fetch::<BridgePort>().await?;
+    let mut switch_egress_vlan = client.fetch::<EthernetSwitchVlan>().await?;
+    let mut switch_egress_vlan_tag = client.fetch::<EthernetSwitchEgressVlanTag>().await?;
+    let mut switch_vlan_translation = client
+        .fetch::<EthernetSwitchIngressVlanTranslation>()
+        .await?;
 
+    let loopback_bridge =
+        bridge.get_or_create_by_value(&field_ref_of!(Bridge => name), String::from("loopback"));
+    loopback_bridge.comment.clear();
+    let switch_bridge =
+        bridge.get_or_create_by_value(&field_ref_of!(Bridge => name), String::from("switch"));
+    switch_bridge.comment.clear();
     for (dfn_name, curr_name) in [
         ("ether1", "e01-uplink"),
         ("ether2", "e02-notebook"),
@@ -73,11 +90,94 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             )
             .name
             .set(String::from(curr_name));
+        let port = bridge_port.get_or_create_by_value(
+            &field_ref_of!(BridgePort => interface),
+            String::from(curr_name),
+        );
+        port.bridge.set(String::from("switch"));
+        port.ingress_filtering.set(false);
+    }
+
+    for vlan in switch_egress_vlan_tag.iter_mut() {
+        vlan.tagged_ports.clear();
+    }
+    switch_egress_vlan_tag.put_all_aside();
+    switch_vlan_translation
+        .iter_mut()
+        .for_each(|t| t.ports.clear());
+    switch_vlan_translation.put_all_aside();
+    switch_egress_vlan.iter_mut().for_each(|t| t.ports.clear());
+    switch_egress_vlan.put_all_aside();
+
+    for (interface, vlan_ids, untagged_vlan) in [
+        (
+            "e01-uplink",
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            None,
+        ),
+        ("e02-notebook", vec![], Some(5)),
+        ("e03", vec![], Some(1)),
+        ("e04", vec![], Some(1)),
+        ("e05", vec![], Some(1)),
+        ("e06", vec![], Some(1)),
+        ("e07-phone", vec![], Some(1)),
+        ("e08", vec![], Some(1)),
+        ("s01", vec![], Some(1)),
+        ("switch1-cpu", vec![], Some(5)),
+    ] {
+        for vlan_id in vlan_ids {
+            switch_egress_vlan_tag
+                .get_or_create_by_value(
+                    &field_ref_of!(EthernetSwitchEgressVlanTag => vlan_id),
+                    vlan_id,
+                )
+                .tagged_ports
+                .get_or_insert(HashSet::new())
+                .insert(String::from(interface));
+            switch_egress_vlan
+                .get_or_create_by_value(&field_ref_of!(EthernetSwitchVlan => vlan_id), vlan_id)
+                .ports
+                .get_or_insert(HashSet::new())
+                .insert(String::from(interface));
+        }
+        if let Some(vlan_id) = untagged_vlan {
+            switch_vlan_translation
+                .get_or_create_by_value2(
+                    &field_ref_of!(EthernetSwitchIngressVlanTranslation => customer_vid),
+                    0,
+                    &field_ref_of!(EthernetSwitchIngressVlanTranslation => new_customer_vid),
+                    vlan_id,
+                )
+                .ports
+                .get_or_insert(HashSet::new())
+                .insert(String::from(interface));
+            switch_egress_vlan
+                .get_or_create_by_value(&field_ref_of!(EthernetSwitchVlan => vlan_id), vlan_id)
+                .ports
+                .get_or_insert(HashSet::new())
+                .insert(String::from(interface));
+        }
+    }
+
+    for (vlan_id, interfaces) in [(1, HashSet::from(["e01-uplink"]))] {
+        let mut egress = switch_egress_vlan_tag.get_or_create_by_value(
+            &field_ref_of!(EthernetSwitchEgressVlanTag => vlan_id),
+            vlan_id,
+        );
+        egress.tagged_ports.set(HashSet::from_iter(
+            interfaces.iter().map(|v| String::from(*v)),
+        ));
     }
 
     //println!("Data before: {:?}", data);
+    bridge.commit(&mut config).await?;
     ethernet.commit(&mut config).await?;
+    bridge_port.commit(&mut config).await?;
+    switch_egress_vlan_tag.commit(&mut config).await?;
+    switch_vlan_translation.commit(&mut config).await?;
+    switch_egress_vlan.commit(&mut config).await?;
 
+    /*
     let wireless = client.fetch::<Wireless>().await?;
     println!("Wireless: {:?}", wireless);
 
@@ -87,6 +187,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Identity: {:?}", identity);
     identity.commit(&mut config).await?;
     println!("Identity: {:?}", identity);
+
+     */
     println!("Update cmd: \n{}", config.dump_cmd());
     //for row in data.iter() {
     //    println!("Row: {:?}", row);
@@ -94,6 +196,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/*
+fn id2tuple(id: (&FieldDescription, &dyn RosFieldAccessor)) -> (&'static str, String) {
+    (id.0.name, id.1.api_value(&ValueFormat::Cli))
+}
+
+ */
 
 fn dump_modifications<Resource: RouterOsResource>(resource: &Resource) {
     for modified_entry in resource

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Chain;
 use std::mem;
-use std::mem::take;
+use std::mem::{swap, take};
 use std::ops::{Deref, DerefMut};
 use std::slice::{Iter, IterMut};
 
@@ -30,6 +30,7 @@ where
             fetched_data,
             new_data: Vec::new(),
             remove_data: Vec::new(),
+            remove_if_not_touched: Vec::new(),
         })
     }
     async fn get<Resource>(&mut self) -> Result<ResourceSingleAccess<Resource>, Error>
@@ -67,6 +68,7 @@ where
     fetched_data: Vec<Resource>,
     new_data: Vec<Resource>,
     remove_data: Vec<Resource>,
+    remove_if_not_touched: Vec<Resource>,
 }
 #[derive(Debug, Default)]
 pub struct ResourceSingleAccess<Resource>
@@ -135,18 +137,25 @@ impl<R> ResourceListAccess<R>
 where
     R: RouterOsListResource,
 {
-    pub fn add(&mut self, r: R) {
+    /*pub fn add(&mut self, r: R) {
         self.new_data.push(r);
-    }
+    }*/
     pub fn remove<P>(&mut self, filter: P)
     where
         P: Fn(&R) -> bool,
     {
         self.new_data.retain(|r| !filter(r));
+
         let mut fetched_data = Vec::new();
         mem::swap(&mut self.fetched_data, &mut fetched_data);
-        let (remove, keep): (Vec<R>, Vec<R>) = fetched_data.into_iter().partition(filter);
+        let (remove, keep): (Vec<R>, Vec<R>) = fetched_data.into_iter().partition(&filter);
         self.fetched_data = keep;
+        self.remove_data.extend(remove);
+
+        let mut fetched_data = Vec::new();
+        mem::swap(&mut self.remove_if_not_touched, &mut fetched_data);
+        let (remove, keep): (Vec<R>, Vec<R>) = fetched_data.into_iter().partition(&filter);
+        self.remove_if_not_touched = keep;
         self.remove_data.extend(remove);
     }
     pub fn find_mut<P>(&mut self, filter: P) -> Vec<&mut R>
@@ -170,17 +179,25 @@ where
     where
         F: Fn(&R) -> bool,
     {
-        for entry in self.fetched_data.iter_mut() {
-            if filter(entry) {
-                return entry;
-            }
+        if let Some(found_index) = self.fetched_data.iter().position(&filter) {
+            return &mut self.fetched_data[found_index];
         }
-        if let Some(found_index) = self.new_data.iter().position(filter) {
+        if let Some(found_index) = self.new_data.iter().position(&filter) {
             return &mut self.new_data[found_index];
+        }
+        if let Some(found_index) = self.remove_if_not_touched.iter().position(&filter) {
+            let deleted = self.remove_if_not_touched.remove(found_index);
+            self.fetched_data.push(deleted);
+            return self.fetched_data.last_mut().unwrap();
         }
         self.new_data.push(R::default());
         let last: Option<&'a mut R> = self.new_data.last_mut();
         last.unwrap()
+    }
+    pub fn put_all_aside(&mut self) {
+        let mut list = Vec::new();
+        swap(&mut list, &mut self.fetched_data);
+        self.remove_if_not_touched.append(&mut list);
     }
     pub fn get_or_create_by_value<V>(
         &mut self,
@@ -193,6 +210,32 @@ where
         let entry =
             self.get_or_default(|b| field.get(b).as_ref().map(|s| s == &value).unwrap_or(false));
         field.get_mut(entry).set(value);
+        entry
+    }
+    pub fn get_or_create_by_value2<V>(
+        &mut self,
+        field1: &FieldRef<R, RosFieldValue<V>>,
+        value1: V,
+        field2: &FieldRef<R, RosFieldValue<V>>,
+        value2: V,
+    ) -> &mut R
+    where
+        V: RosValue<Type = V>,
+    {
+        let entry = self.get_or_default(|b| {
+            field1
+                .get(b)
+                .as_ref()
+                .map(|s| s == &value1)
+                .unwrap_or(false)
+                && field2
+                    .get(b)
+                    .as_ref()
+                    .map(|s| s == &value2)
+                    .unwrap_or(false)
+        });
+        field1.get_mut(entry).set(value1);
+        field2.get_mut(entry).set(value2);
         entry
     }
     pub fn commit<'a, C, E>(
@@ -211,8 +254,12 @@ where
             .collect();
         let new_entries: Vec<R> = self.new_data.iter().map(R::clone).collect();
         let remove_entries = self.remove_data.clone();
+        let remove_untouched_entries = self.remove_if_not_touched.clone();
         async {
             for remove_entry in remove_entries {
+                client.delete(remove_entry).await?;
+            }
+            for remove_entry in remove_untouched_entries {
                 client.delete(remove_entry).await?;
             }
             for update_entry in modified_entries {
@@ -237,6 +284,7 @@ where
             let fetched_data: Vec<R> = client.list().await?;
             self.remove_data.clear();
             self.new_data.clear();
+            self.remove_if_not_touched.clear();
             self.fetched_data = fetched_data;
             Ok(())
         }

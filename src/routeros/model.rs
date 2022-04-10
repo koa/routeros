@@ -5,8 +5,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hash;
 use std::net::{AddrParseError, IpAddr, Ipv4Addr};
 use std::num::ParseIntError;
-use std::ops::{Deref, RangeInclusive};
-use std::str::FromStr;
+use std::ops::{Deref, DerefMut, RangeInclusive};
+use std::str::{FromStr, ParseBoolError};
 
 use crate::routeros::client::api::RosError;
 
@@ -168,6 +168,15 @@ where
     }
 }
 
+impl<T> DerefMut for RosFieldValue<T>
+where
+    T: RosValue<Type = T>,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.current_value
+    }
+}
+
 impl<RV> RosValue for HashSet<RV>
 where
     RV: RosValue<Type = RV> + Eq + Hash,
@@ -209,9 +218,13 @@ where
 
 impl RosValue for bool {
     type Type = bool;
-    type Err = RosError;
+    type Err = ParseBoolError;
     fn from_api(value: &str) -> Result<bool, Self::Err> {
-        value.parse().map_err(RosError::from)
+        match value {
+            "no" => Ok(false),
+            "yes" => Ok(true),
+            value => value.parse(),
+        }
     }
 
     fn to_api(&self, format: &ValueFormat) -> String {
