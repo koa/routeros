@@ -1,6 +1,6 @@
 /interface/bridge/port
 
-.id
+*.id
 .nextid
 broadcast-flood: bool
 edge:auto,no,no-discover,yes,yes-discover
@@ -51,11 +51,11 @@ root-path-cost: u32
 designated-cost: u32
 
 /interface/bridge
-.id
+*.id
 mtu: Auto<u16>
 actual-mtu: u16
 l2mtu: u16
-name
+*name
 add-dhcp-option82: bool
 admin-mac
 auto-mac: bool

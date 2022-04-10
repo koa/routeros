@@ -611,6 +611,9 @@ pub trait RouterOsApiFieldAccess {
     fn fields(
         &self,
     ) -> Box<dyn Iterator<Item = (&'static FieldDescription, &dyn RosFieldAccessor)> + '_>;
+    fn is_dynamic(&self) -> bool {
+        false
+    }
 }
 
 pub trait RouterOsResource:

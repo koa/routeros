@@ -72,6 +72,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let switch_bridge =
         bridge.get_or_create_by_value(&field_ref_of!(Bridge => name), String::from("switch"));
     switch_bridge.comment.clear();
+    bridge_port.put_aside(
+        &(|p: &BridgePort| {
+            p.bridge
+                .get()
+                .as_ref()
+                .map(|name| "switch" == name)
+                .unwrap_or(false)
+        }),
+    );
     for (dfn_name, curr_name) in [
         ("ether1", "e01-uplink"),
         ("ether2", "e02-notebook"),
@@ -115,7 +124,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
             None,
         ),
-        ("e02-notebook", vec![], Some(5)),
+        ("e02-notebook", vec![], Some(6)),
         ("e03", vec![], Some(1)),
         ("e04", vec![], Some(1)),
         ("e05", vec![], Some(1)),

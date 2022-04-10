@@ -199,6 +199,16 @@ where
         swap(&mut list, &mut self.fetched_data);
         self.remove_if_not_touched.append(&mut list);
     }
+    pub fn put_aside<F>(&mut self, filter: &F)
+    where
+        F: Fn(&R) -> bool,
+    {
+        let mut list = Vec::new();
+        swap(&mut list, &mut self.fetched_data);
+        let (mut remove, keep): (Vec<R>, Vec<R>) = list.into_iter().partition(&filter);
+        self.fetched_data = keep;
+        self.remove_if_not_touched.append(&mut remove);
+    }
     pub fn get_or_create_by_value<V>(
         &mut self,
         field: &FieldRef<R, RosFieldValue<V>>,
@@ -249,12 +259,27 @@ where
         let modified_entries: Vec<R> = self
             .fetched_data
             .iter()
-            .filter(|e| (*e).is_modified())
-            .map(|e| e.clone())
+            .filter(|e| (!(*e).is_dynamic()) && (*e).is_modified())
+            .map(R::clone)
             .collect();
-        let new_entries: Vec<R> = self.new_data.iter().map(R::clone).collect();
-        let remove_entries = self.remove_data.clone();
-        let remove_untouched_entries = self.remove_if_not_touched.clone();
+        let new_entries: Vec<R> = self
+            .new_data
+            .iter()
+            .filter(|e| !e.is_dynamic())
+            .map(R::clone)
+            .collect();
+        let remove_entries: Vec<R> = self
+            .remove_data
+            .iter()
+            .filter(|e| !e.is_dynamic())
+            .map(R::clone)
+            .collect();
+        let remove_untouched_entries: Vec<R> = self
+            .remove_if_not_touched
+            .iter()
+            .filter(|e| !e.is_dynamic())
+            .map(R::clone)
+            .collect();
         async {
             for remove_entry in remove_entries {
                 client.delete(remove_entry).await?;

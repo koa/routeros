@@ -313,6 +313,16 @@ fn dump_module(
         writeln!(file, "{prefix}   Box::new(fields.into_iter())")?;
         writeln!(file, "{prefix}  }}")?;
 
+        if let Some(_) = module_data
+            .content
+            .iter()
+            .find(|t| &t.field_name == "dynamic")
+        {
+            writeln!(file, "{prefix}  fn is_dynamic(&self) -> bool {{")?;
+            writeln!(file, "{prefix}   self.dynamic.get().unwrap_or(false)")?;
+            writeln!(file, "{prefix}  }}")?;
+        }
+
         writeln!(file, "{prefix}}}")?;
     }
     for (module_name, module_data) in module_data.sub_modules.iter() {
