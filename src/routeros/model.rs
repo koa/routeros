@@ -10,13 +10,25 @@ use std::str::FromStr;
 
 use crate::routeros::client::api::RosError;
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct RosFieldValue<T>
 where
     T: RosValue<Type = T>,
 {
     original_value: String,
     current_value: Option<T>,
+}
+
+impl<T> Default for RosFieldValue<T>
+where
+    T: RosValue<Type = T>,
+{
+    fn default() -> Self {
+        Self {
+            original_value: String::new(),
+            current_value: Option::None,
+        }
+    }
 }
 
 pub enum ValueFormat {
@@ -143,7 +155,7 @@ where
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Duration {
-    seconds: u32,
+    milliseconds: u32,
 }
 
 impl<T> Deref for RosFieldValue<T>
@@ -278,6 +290,23 @@ impl RosValue for u8 {
     fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
         if value.starts_with("0x") {
             u8::from_str_radix(&value[2..], 16)
+        } else {
+            value.parse()
+        }
+        .map_err(RosError::from)
+    }
+
+    fn to_api(&self, _: &ValueFormat) -> String {
+        self.to_string()
+    }
+}
+impl RosValue for i8 {
+    type Type = i8;
+    type Err = RosError;
+
+    fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
+        if value.starts_with("0x") {
+            i8::from_str_radix(&value[2..], 16)
         } else {
             value.parse()
         }
@@ -473,25 +502,38 @@ impl RosValue for Duration {
     type Err = RosError;
 
     fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
+        let mut milli_second_count: u16 = 0;
         let mut second_count: u8 = 0;
         let mut minute_count: u8 = 0;
         let mut hour_count: u8 = 0;
         let mut positional_count: Vec<u8> = Vec::new();
         let mut number = String::new();
+        let mut last_was_m = false;
         for ch in value.chars() {
             if ch.is_digit(10) {
+                if last_was_m {
+                    minute_count = number.parse()?;
+                    number.clear();
+                }
                 number.push(ch);
+                last_was_m = false;
             } else if ch == ':' {
                 positional_count.push(number.parse()?);
+                last_was_m = false;
                 number.clear();
             } else if ch == 'h' {
                 hour_count = number.parse()?;
+                last_was_m = false;
                 number.clear();
             } else if ch == 'm' {
-                minute_count = number.parse()?;
-                number.clear();
+                last_was_m = true;
             } else if ch == 's' {
-                second_count = number.parse()?;
+                if last_was_m {
+                    milli_second_count = number.parse()?;
+                } else {
+                    second_count = number.parse()?;
+                }
+                last_was_m = false;
                 number.clear();
             };
         }
@@ -506,21 +548,29 @@ impl RosValue for Duration {
             hour_count += count;
         }
         Ok(Duration {
-            seconds: second_count as u32 + minute_count as u32 * 60 + hour_count as u32 * 3600,
+            milliseconds: milli_second_count as u32
+                + second_count as u32 * 1000
+                + minute_count as u32 * 1000 * 60
+                + hour_count as u32 * 1000 * 3600,
         })
     }
 
     fn to_api(&self, _: &ValueFormat) -> String {
-        let seconds = self.seconds % 60;
-        let minutes = (self.seconds / 60) % 60;
-        let hours = self.seconds / 3600;
-        format!("{seconds:02}:{minutes:02}:{hours:02}")
+        if self.milliseconds < 1000 && self.milliseconds != 0 {
+            format!("{}ms", self.milliseconds)
+        } else {
+            let all_seconds = self.milliseconds / 1000;
+            let seconds = all_seconds % 60;
+            let minutes = (all_seconds / 60) % 60;
+            let hours = all_seconds / 3600;
+            format!("{seconds:02}:{minutes:02}:{hours:02}")
+        }
     }
 }
 
 impl Default for Duration {
     fn default() -> Self {
-        Duration { seconds: 0 }
+        Duration { milliseconds: 0 }
     }
 }
 
@@ -569,3 +619,6 @@ pub trait RouterOsResource:
             .next()
     }
 }
+
+pub trait RouterOsListResource: RouterOsResource {}
+pub trait RouterOsSingleResource: RouterOsResource {}

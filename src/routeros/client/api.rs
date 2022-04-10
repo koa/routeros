@@ -15,7 +15,7 @@ use mac_address::MacParseError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use crate::routeros::model::RouterOsResource;
+use crate::routeros::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource};
 use crate::{Client, ValueFormat};
 
 #[derive(Debug)]
@@ -543,6 +543,30 @@ impl ApiClient {
         api.login(username, password).await?;
         Ok(ApiClient { api })
     }
+
+    async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
+    where
+        Resource: RouterOsResource,
+    {
+        let mut request: Vec<ApiWord> = Vec::new();
+        let path = Resource::resource_path();
+
+        request.push(ApiWord::command(format!("{}/set", path)));
+        if let Some((description, value)) = resource.id_field() {
+            request.push(ApiWord::attribute(
+                description.name,
+                value.api_value(&ValueFormat::Api),
+            ));
+        }
+        resource
+            .fields()
+            .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0.name, v)))
+            .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
+
+        let x = self.api.talk_vec(request).await?;
+        println!("Result: {:?}", x);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -611,32 +635,23 @@ impl Client<RosError> for ApiClient {
 
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
-        Resource: RouterOsResource,
+        Resource: RouterOsListResource,
     {
         {
-            let mut request: Vec<ApiWord> = Vec::new();
-            let path = Resource::resource_path();
-
-            request.push(ApiWord::command(format!("{}/set", path)));
-            if let Some((description, value)) = resource.id_field() {
-                request.push(ApiWord::attribute(
-                    description.name,
-                    value.api_value(&ValueFormat::Api),
-                ));
-            }
-            resource
-                .fields()
-                .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0.name, v)))
-                .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
-
-            let x = self.api.talk_vec(request).await?;
-            println!("Result: {:?}", x);
-            Ok(())
+            self.set(resource).await
         }
     }
+
+    async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
+    where
+        Resource: RouterOsSingleResource,
+    {
+        self.set(resource).await
+    }
+
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
-        Resource: RouterOsResource,
+        Resource: RouterOsListResource,
     {
         let mut request: Vec<ApiWord> = Vec::new();
         let path = Resource::resource_path();
@@ -653,7 +668,7 @@ impl Client<RosError> for ApiClient {
     }
     async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
-        Resource: RouterOsResource,
+        Resource: RouterOsListResource,
     {
         let mut request: Vec<ApiWord> = Vec::new();
         if let Some((description, value)) = resource.id_field() {

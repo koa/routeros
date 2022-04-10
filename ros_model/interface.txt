@@ -100,7 +100,7 @@ slave: bool
 !not-learned:u64
 !
 /interface/ethernet/switch/egress-vlan-tag
-.id
+*.id
 vlan-id:u16
 tagged-ports: HashSet<String>
 comment
@@ -108,7 +108,7 @@ disabled: bool
 dynamic: bool
 
 /interface/ethernet/switch/ingress-vlan-translation
-.id
+*.id
 .nextid
 comment
 customer-pcp
@@ -132,7 +132,7 @@ dynamic:bool
 
 
 /interface/ethernet/switch/vlan
-.id
+*.id
 comment
 disabled:bool
 flood:bool
@@ -144,3 +144,104 @@ svl:bool
 vlan-id:u16
 
 dynamic:bool
+
+/interface/wireless
+*.id
+adaptive-noise-immunity: none, ap-and-client-mode, client-mode
+allow-sharedkey: bool
+ampdu-priorities: u8
+amsdu-limit: u16
+amsdu-threshold:u16
+antenna-gain:u32
+antenna-mode: ant-a, ant-b, rxa-txb,txa-rxb
+area
+arp: enabled, disabled, local-proxy-arp, proxy-arp, reply-only
+arp-timeout: Auto<Duration>
+band: 2ghz-b,2ghz-b/g,2ghz-b/g/n,2ghz-g/n,2ghz-onlyg,2ghz-onlyn,5ghz-a,5ghz-a/n,5ghz-a/n/ac,5ghz-n/ac,5ghz-onlyac,5ghz-onlyn
+basic-rates-a/g: 6Mbps,9Mbps,12Mbps,18Mbps,24Mbps,36Mbps,48Mbps,54Mbps
+basic-rates-b: 1Mbps,2Mbps,5.5Mbps,11Mbps
+bridge-mode: enabled, disabled
+burst-time:u32
+channel-width: 20mhz,20/40/80/160mhz-Ceeeeeee,20/40/80/160mhz-XXXXXXXX,20/40/80/160mhz-eCeeeeee,20/40/80/160mhz-eeCeeeee,20/40/80/160mhz-eeeCeeee,20/40/80/160mhz-eeeeCeee,20/40/80/160mhz-eeeeeCee,20/40/80/160mhz-eeeeeeCe,20/40/80/160mhz-eeeeeeeC,20/40/80mhz-Ceee,20/40/80mhz-eCee,20/40/80mhz-eeCe,20/40/80mhz-eeeC,20/40/80mhz-XXXX,20/40mhz-Ce,20/40mhz-eC,20/40mhz-XX,40mhz-turbo,10mhz,5mhz
+comment
+compression: bool
+country
+default-ap-tx-limit: u32
+default-authentication:bool
+default-client-tx-limit:u32
+default-forwarding:bool
+disable-running-check:bool
+disabled:bool
+disconnect-timeout:Duration
+distance
+frame-lifetime:u32
+frequency: Auto<u32>
+frequency-mode: manual-txpower,regulatory-domain,superchannel
+frequency-offset:u32
+guard-interval:any,long
+hide-ssid:bool
+ht-basic-mcs: HashSet<String>
+ht-supported-mcs: HashSet<String>
+hw-fragmentation-threshold
+hw-protection-mode: none, cts-to-self, rts-cts
+hw-protection-threshold: u16
+hw-retries: u8
+installation: any, indoor, outdoor
+interworking-profile: disabled, enabled
+keepalive-frames: enabled, disabled
+l2mtu: u16
+mac-address: MacAddress
+master-interface
+max-station-count: u16
+mode: station,station-wds,ap-bridge,bridge,alignment-only,nstreme-dual-slave,wds-slave,station-pseudobridge,station-pseudobridge-clone,station-bridge
+mtu: u16
+multicast-buffering: enabled, disabled
+multicast-helper: default, disabled, full
+name
+noise-floor-threshold
+nv2-cell-radius: u8
+nv2-downlink-ratio
+nv2-mode: dynamic-downlink,fixed-downlink,sync-master,sync-slave
+nv2-noise-floor-offset
+nv2-preshared-key
+nv2-qos: default, frame-priority
+nv2-queue-count: u8
+nv2-security: disabled, enabled
+nv2-sync-secret
+on-fail-retry-time: Duration
+preamble-mode: both, long, short
+prism-cardtype: 100mW, 200mW, 300mW
+radio-name
+rate-selection: advanced, legacy
+rate-set: default, configured
+rx-chains: HashSet<u8>
+scan-list
+secondary-frequency: u32
+security-profile
+skip-dfs-channels
+ssid
+station-bridge-clone-mac: MacAddress
+station-roaming: disabled, enabled
+supported-rates-a/g: HashSet<BasicRatesAG>
+supported-rates-b: HashSet<BasicRatesB>
+tdma-period-size:u8
+tx-chains: HashSet<u8>
+tx-power:i8
+tx-power-mode: default, card-rates, all-rates-fixed, manual-table
+update-stats-interval
+vht-basic-mcs: MCS 0-7,none,MCS 0-8,MCS 0-9
+vht-supported-mcs: MCS 0-9,MCS 0-7,none,MCS 0-8
+vlan-id: u16
+vlan-mode: no-tag, use-service-tag, use-tag
+wds-cost-range: RangeInclusive<u32>
+wds-default-bridge
+wds-default-cost
+wds-ignore-ssid
+wds-mode: disabled,dynamic,dynamic-mesh,static,static-mesh
+wireless-protocol: 802.11,any,nstreme,nv2,nv2-nstreme,nv2-nstreme-802.11,unspecified
+wmm-support: disabled, enabled
+wps-mode: disabled,push-button,push-button-5s,push-button-virtual-only
+
+*default-name
+interface-type: Atheros AR9300,none
+running: bool

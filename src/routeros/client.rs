@@ -5,9 +5,13 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::iter::Chain;
 use std::mem;
+use std::mem::take;
+use std::ops::{Deref, DerefMut};
 use std::slice::{Iter, IterMut};
 
-use crate::routeros::model::{RosValue, RouterOsResource};
+use crate::routeros::model::{
+    RosValue, RouterOsListResource, RouterOsResource, RouterOsSingleResource,
+};
 
 pub mod api;
 pub mod config;
@@ -17,45 +21,119 @@ pub trait Client<Error>
 where
     Error: std::error::Error,
 {
-    async fn fetch<Resource>(&mut self) -> Result<ResourceAccess<Resource>, Error>
+    async fn fetch<Resource>(&mut self) -> Result<ResourceListAccess<Resource>, Error>
     where
-        Resource: RouterOsResource,
+        Resource: RouterOsListResource,
     {
         let fetched_data: Vec<Resource> = self.list().await?;
-        Ok(ResourceAccess {
+        Ok(ResourceListAccess {
             fetched_data,
             new_data: Vec::new(),
             remove_data: Vec::new(),
         })
+    }
+    async fn get<Resource>(&mut self) -> Result<ResourceSingleAccess<Resource>, Error>
+    where
+        Resource: RouterOsSingleResource,
+    {
+        let value = if let Some(value) = self.list().await?.into_iter().next() {
+            value
+        } else {
+            Resource::default()
+        };
+        Ok(ResourceSingleAccess { data: value })
     }
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, Error>
     where
         Resource: RouterOsResource;
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), Error>
     where
-        Resource: RouterOsResource;
+        Resource: RouterOsListResource;
+    async fn set<Resource>(&mut self, resource: Resource) -> Result<(), Error>
+    where
+        Resource: RouterOsSingleResource;
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), Error>
     where
-        Resource: RouterOsResource;
+        Resource: RouterOsListResource;
     async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), Error>
     where
-        Resource: RouterOsResource;
+        Resource: RouterOsListResource;
 }
 #[derive(Debug, Default)]
-pub struct ResourceAccess<Resource>
+pub struct ResourceListAccess<Resource>
 where
-    Resource: RouterOsResource,
+    Resource: RouterOsListResource,
 {
     fetched_data: Vec<Resource>,
     new_data: Vec<Resource>,
     remove_data: Vec<Resource>,
 }
+#[derive(Debug, Default)]
+pub struct ResourceSingleAccess<Resource>
+where
+    Resource: RouterOsSingleResource,
+{
+    data: Resource,
+}
+
+impl<R: RouterOsSingleResource> Deref for ResourceSingleAccess<R> {
+    type Target = R;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<R: RouterOsSingleResource> DerefMut for ResourceSingleAccess<R> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
 
 // unsafe impl<R> Send for ResourceAccess<R> where R: RouterOsResource {}
 
-impl<R> ResourceAccess<R>
+impl<R> ResourceSingleAccess<R>
 where
-    R: RouterOsResource,
+    R: RouterOsSingleResource,
+{
+    pub fn commit<'a, C, E>(
+        &'a mut self,
+        client: &'a mut C,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
+    {
+        let data = take(&mut self.data);
+        async {
+            client.set(data).await?;
+            self.rollback(client).await?;
+            Ok(())
+        }
+    }
+    pub fn rollback<'a, C, E>(
+        &'a mut self,
+        client: &'a mut C,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
+    {
+        async {
+            let fetched_data: Vec<R> = client.list().await?;
+            if let Some(existing_value) = fetched_data.into_iter().next() {
+                self.data = existing_value;
+            } else {
+                self.data = R::default();
+            };
+            Ok(())
+        }
+    }
+}
+
+impl<R> ResourceListAccess<R>
+where
+    R: RouterOsListResource,
 {
     pub fn add(&mut self, r: R) {
         self.new_data.push(r);

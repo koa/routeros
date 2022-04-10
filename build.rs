@@ -15,6 +15,7 @@ struct OutputModule {
     content: Vec<OutputField>,
     enums: HashMap<String, Enum>,
     sub_modules: HashMap<String, OutputModule>,
+    single_value: bool,
 }
 
 impl OutputModule {
@@ -23,6 +24,7 @@ impl OutputModule {
             content: Vec::new(),
             enums: HashMap::new(),
             sub_modules: HashMap::new(),
+            single_value: false,
         }
     }
 }
@@ -68,6 +70,21 @@ fn main() -> std::io::Result<()> {
                                 .sub_modules
                                 .entry(comp_name)
                                 .or_insert(OutputModule::new());
+                        }
+                        open_module = Some(current_module);
+                    } else if line.starts_with("1/") {
+                        let mut current_module = &mut root_module;
+                        for part in part_pattern.find_iter(&line.as_str()[1..]) {
+                            let match_str = part.as_str();
+                            if match_str.len() < 2 {
+                                continue;
+                            }
+                            let comp_name: String = match_str.chars().skip(1).collect();
+                            current_module = current_module
+                                .sub_modules
+                                .entry(comp_name)
+                                .or_insert(OutputModule::new());
+                            current_module.single_value = true;
                         }
                         open_module = Some(current_module);
                     } else if let Some(current_module) = &mut open_module {
@@ -117,7 +134,7 @@ fn create_storage(
     }
     if !module_data.content.is_empty() {
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
-        let field_name = module_path[1..].join("-").to_case(Case::Snake);
+        //let field_name = module_path[1..].join("-").to_case(Case::Snake);
         writeln!(file, "    {model_name},",)?;
     }
     for (module_name, module_data) in module_data.sub_modules.iter() {
@@ -151,9 +168,10 @@ fn dump_module(
         )?;
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
+        writeln!(file, "{prefix}use std::ops::RangeInclusive;")?;
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
-            writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone)]")?;
+            writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone, Hash)]")?;
             writeln!(file, "{prefix}pub enum {type_name} {{")?;
             for value in type_values.values.iter() {
                 if let Some(enum_value) = expand_enum_name(value.as_str()) {
@@ -244,24 +262,20 @@ fn dump_module(
         writeln!(file, "{prefix}   fn resource_path() -> &'static str {{")?;
         writeln!(file, "{prefix}     \"{module_path}\"")?;
         writeln!(file, "{prefix}    }}")?;
-        /*
-                writeln!(
-                    file,
-                    "{prefix}   fn store_vec(storage: &mut crate::routeros::generated::Storage) -> &mut Vec<Self> {{"
-                )?;
-                writeln!(file, "{prefix}     &mut storage.{field_name}")?;
-                writeln!(file, "{prefix}    }}")?;
-        */
-        /*
-        if has_id {
-            writeln!(file, "{prefix}   fn id_field() -> Option<&'static str> {{")?;
-            writeln!(file, "{prefix}     Option::Some(\".id\")")?;
-            writeln!(file, "{prefix}    }}")?;
-            writeln!(file, "{prefix}   fn id_value(&self) -> Option<String> {{")?;
-            writeln!(file, "{prefix}     Option::Some( self.id.original_value())")?;
-            writeln!(file, "{prefix}    }}")?;
-        }*/
+
         writeln!(file, "{prefix}}}")?;
+
+        writeln!(
+            file,
+            "{prefix}impl crate::routeros::model::{variant} for {model_name} {{",
+            variant = if module_data.single_value {
+                "RouterOsSingleResource"
+            } else {
+                "RouterOsListResource"
+            }
+        )?;
+        writeln!(file, "{prefix}}}")?;
+
         writeln!(
             file,
             "{prefix}impl crate::routeros::model::RouterOsApiFieldAccess for {model_name} {{"
@@ -415,7 +429,7 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
         Some((
             OutputField {
                 field_name: String::from(trimmed_name),
-                field_type: trimmed_name.to_case(Case::UpperCamel),
+                field_type: name2rust(trimmed_name, true),
                 id: is_id,
                 read_only: is_read_only,
             },

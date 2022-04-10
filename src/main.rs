@@ -1,13 +1,17 @@
 use crate::routeros::client::api::ApiClient;
 use crate::routeros::client::config::{ConfigClient, RosModel};
-use crate::routeros::client::{Client, ResourceAccess};
+use crate::routeros::client::{Client, ResourceListAccess};
 use crate::routeros::generated::interface::bridge::Bridge;
 use crate::routeros::generated::interface::ethernet::switch::ingress_vlan_translation::EthernetSwitchIngressVlanTranslation;
 use crate::routeros::generated::interface::ethernet::switch::vlan::EthernetSwitchVlan;
 use crate::routeros::generated::interface::ethernet::Ethernet;
+use crate::routeros::generated::interface::wireless::Wireless;
+use crate::routeros::generated::system::identity::Identity;
 use crate::routeros::model::{RosFieldValue, RouterOsResource, ValueFormat};
 use field_ref::field_ref_of;
 use serde::de::Unexpected::Str;
+use std::ops::DerefMut;
+use std::process::id;
 
 pub mod routeros;
 
@@ -49,7 +53,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     //let name = Some(String::from("loopback"));
     let mut config = ConfigClient::with_default_config(RosModel::Crs109).await?;
-    let mut data: ResourceAccess<Ethernet> = config.fetch().await?;
+    let mut ethernet: ResourceListAccess<Ethernet> = config.fetch().await?;
 
     for (dfn_name, curr_name) in [
         ("ether1", "e01-uplink"),
@@ -62,17 +66,27 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         ("ether8", "e08"),
         ("sfp1", "s01"),
     ] {
-        data.get_or_create_by_value(
-            &field_ref_of!(Ethernet => default_name),
-            String::from(dfn_name),
-        )
-        .name
-        .set(String::from(curr_name));
+        ethernet
+            .get_or_create_by_value(
+                &field_ref_of!(Ethernet => default_name),
+                String::from(dfn_name),
+            )
+            .name
+            .set(String::from(curr_name));
     }
 
     //println!("Data before: {:?}", data);
-    data.commit(&mut config).await?;
-    //println!("Data after: {:?}", data);
+    ethernet.commit(&mut config).await?;
+
+    let wireless = client.fetch::<Wireless>().await?;
+    println!("Wireless: {:?}", wireless);
+
+    let mut identity = client.get::<Identity>().await?;
+    let value = identity.deref_mut();
+    value.name.set(String::from("Hello System"));
+    println!("Identity: {:?}", identity);
+    identity.commit(&mut config).await?;
+    println!("Identity: {:?}", identity);
     println!("Update cmd: \n{}", config.dump_cmd());
     //for row in data.iter() {
     //    println!("Row: {:?}", row);

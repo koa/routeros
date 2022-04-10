@@ -2,9 +2,9 @@ use crate::routeros::client::api::RosError;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use crate::routeros::model::ValueFormat;
-use crate::RouterOsResource;
-use crate::{Client, Ethernet, ResourceAccess};
+use crate::routeros::model::{RouterOsListResource, RouterOsSingleResource, ValueFormat};
+use crate::{Client, Ethernet, ResourceListAccess};
+use crate::{RouterOsResource, Wireless};
 use async_trait::async_trait;
 use field_ref::field_ref_of;
 use std::future::ready;
@@ -21,11 +21,17 @@ pub enum RosModel {
 
 impl RosModel {
     pub async fn init(&self, client: &mut ConfigClient) -> Result<(), RosError> {
-        let mut data: ResourceAccess<Ethernet> = client.fetch().await?;
+        let mut eth = client.fetch::<Ethernet>().await?;
+        let mut wlan = client.fetch::<Wireless>().await?;
         for if_name in self.ethernet_interfaces() {
-            data.get_or_create_by_value(&field_ref_of!(Ethernet => default_name), if_name);
+            eth.get_or_create_by_value(&field_ref_of!(Ethernet => default_name), if_name);
         }
-        data.commit(client).await?;
+        for if_name in self.wireless_interfaces() {
+            wlan.get_or_create_by_value(&field_ref_of!(Wireless => default_name), if_name);
+        }
+
+        wlan.commit(client).await?;
+        eth.commit(client).await?;
         client.dump_cmd();
         Ok(())
     }
@@ -35,6 +41,13 @@ impl RosModel {
                 .map(|idx| format!("ether{}", idx))
                 .chain(Some(String::from("sfp1")))
                 .collect(),
+        }
+    }
+    fn wireless_interfaces(&self) -> Vec<String> {
+        match self {
+            RosModel::Crs109 => {
+                vec![String::from("wlan1")]
+            }
         }
     }
 }
@@ -143,7 +156,7 @@ impl Client<RosError> for ConfigClient {
 
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
-        Resource: RouterOsResource,
+        Resource: RouterOsListResource,
     {
         if let Some((description, field)) = resource.id_field() {
             let key = description.name;
@@ -165,6 +178,24 @@ impl Client<RosError> for ConfigClient {
             }
         }
         ready(Ok(())).await
+    }
+
+    async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
+    where
+        Resource: RouterOsSingleResource,
+    {
+        self.ensure_context(Resource::resource_path());
+        self.output.push_str(&format!("set"));
+        self.append_modified_fields(&resource);
+        self.output.push('\n');
+
+        let values = self.values_of_resource::<Resource>();
+        if values.is_empty() {
+            values.push(HashMap::new());
+        }
+        Self::write_resource(resource, &mut values[0]);
+        Ok(())
+        //ready(Ok(())).await
     }
 
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
