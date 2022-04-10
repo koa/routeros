@@ -89,13 +89,41 @@ fn main() -> std::io::Result<()> {
     let mut write_handle = BufWriter::new(File::create(dest_path)?);
     writeln!(write_handle, "#[allow(unused_imports)]")?;
     writeln!(write_handle, "pub mod generated{{")?;
-    //writeln!(write_handle, "  pub mod model{{")?;
-    let empty_path = vec![];
-    dump_module(&mut write_handle, &root_module, 1, &empty_path, "")?;
-    //writeln!(write_handle, "  }}")?;
+
+    /*
+        writeln!(write_handle, "  #[derive(Debug)]")?;
+        writeln!(write_handle, "  pub enum Type{{")?;
+        create_storage(&mut write_handle, &root_module, &vec![], "")?;
+        writeln!(write_handle, "  }}")?;
+    */
+    dump_module(&mut write_handle, &root_module, 1, &vec![], "")?;
     writeln!(write_handle, "}}")?;
     println!("cargo:rerun-if-changed=generated.rs");
     std::io::Result::Ok(())
+}
+
+fn create_storage(
+    file: &mut BufWriter<File>,
+    module_data: &OutputModule,
+    parent_path: &Vec<&str>,
+    module_name: &str,
+) -> std::io::Result<()> {
+    if module_data.sub_modules.is_empty() && module_data.content.is_empty() {
+        return Ok(());
+    }
+    let mut module_path = parent_path.clone();
+    if !module_name.is_empty() {
+        module_path.push(module_name);
+    }
+    if !module_data.content.is_empty() {
+        let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
+        let field_name = module_path[1..].join("-").to_case(Case::Snake);
+        writeln!(file, "    {model_name},",)?;
+    }
+    for (module_name, module_data) in module_data.sub_modules.iter() {
+        create_storage(file, module_data, &module_path, module_name)?;
+    }
+    Ok(())
 }
 
 fn dump_module(
@@ -207,6 +235,7 @@ fn dump_module(
             )?;
         }
         writeln!(file, "{prefix}}}")?;
+        let field_name = module_path[1..].join("-").to_case(Case::Snake);
         let module_path = module_path.join("/");
         writeln!(
             file,
@@ -215,7 +244,14 @@ fn dump_module(
         writeln!(file, "{prefix}   fn resource_path() -> &'static str {{")?;
         writeln!(file, "{prefix}     \"{module_path}\"")?;
         writeln!(file, "{prefix}    }}")?;
-
+        /*
+                writeln!(
+                    file,
+                    "{prefix}   fn store_vec(storage: &mut crate::routeros::generated::Storage) -> &mut Vec<Self> {{"
+                )?;
+                writeln!(file, "{prefix}     &mut storage.{field_name}")?;
+                writeln!(file, "{prefix}    }}")?;
+        */
         /*
         if has_id {
             writeln!(file, "{prefix}   fn id_field() -> Option<&'static str> {{")?;

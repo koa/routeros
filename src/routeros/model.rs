@@ -535,6 +535,7 @@ where
         V: ToString;
     fn build(self) -> R;
 }
+#[derive(PartialEq)]
 pub struct FieldDescription {
     pub name: &'static str,
     pub is_read_only: bool,
@@ -567,8 +568,4 @@ pub trait RouterOsResource:
             .filter(|(description, value)| description.is_id && value.has_value())
             .next()
     }
-}
-
-mod generated {
-    include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 }

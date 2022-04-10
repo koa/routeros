@@ -143,6 +143,23 @@ where
             for new_entry in new_entries {
                 client.add(new_entry).await?;
             }
+            self.rollback(client).await?;
+            Ok(())
+        }
+    }
+    pub fn rollback<'a, C, E>(
+        &'a mut self,
+        client: &'a mut C,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
+    {
+        async {
+            let fetched_data: Vec<R> = client.list().await?;
+            self.remove_data.clear();
+            self.new_data.clear();
+            self.fetched_data = fetched_data;
             Ok(())
         }
     }
