@@ -1,13 +1,14 @@
 use convert_case::{Case, Casing};
 use regex::Regex;
-use std::cell::RefCell;
+
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
+
 use std::path::Path;
-use std::sync::Mutex;
+
 use std::{env, fs};
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ impl OutputModule {
 
 #[derive(Debug)]
 struct Enum {
+    type_name: String,
     values: Vec<String>,
 }
 
@@ -90,7 +92,7 @@ fn main() -> std::io::Result<()> {
                     } else if let Some(current_module) = &mut open_module {
                         if let Some((field, optional_enum)) = parse_field_line(line) {
                             if let Some(e) = optional_enum {
-                                current_module.enums.insert(field.field_type.clone(), e);
+                                current_module.enums.insert(e.type_name.clone(), e);
                             }
                             current_module.content.push(field);
                         }
@@ -169,6 +171,7 @@ fn dump_module(
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
         writeln!(file, "{prefix}use std::ops::RangeInclusive;")?;
+        writeln!(file, "{prefix}use std::net::IpAddr;")?;
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
             writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone, Hash)]")?;
@@ -386,28 +389,32 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             Some(_) => {}
         }
     }
-    let field_type = Mutex::new(RefCell::new(String::new()));
-    let mut field_type_components: Vec<String> = vec![];
     //let mut closure_field_type = field_type.clone();
-    let mut push_to_components = || {
-        let mut guard = field_type.lock().unwrap();
-        let field_type = guard.get_mut();
+    let mut push_to_components = |field_type_components: &mut Vec<String>,
+                                  field_type: &mut String| {
         let striped_field_type = String::from(field_type.trim());
         if striped_field_type.len() > 0 {
             field_type_components.push(striped_field_type);
         }
         field_type.clear();
     };
+    let mut field_type_components: Vec<String> = vec![];
+    let mut field_type = String::new();
+    let mut is_hash = false;
     loop {
         match chars.next() {
             None => break,
-            Some(ch) if ch == ',' => {
-                push_to_components();
+            Some('[') => {
+                is_hash |= field_type_components.is_empty();
             }
-            Some(ch) => field_type.lock().unwrap().get_mut().push(ch),
+            Some(']') => {}
+            Some(',') => {
+                push_to_components(&mut field_type_components, &mut field_type);
+            }
+            Some(ch) => field_type.push(ch),
         }
     }
-    push_to_components();
+    push_to_components(&mut field_type_components, &mut field_type);
 
     let trimmed_name = field_name.trim();
     if trimmed_name.is_empty() {
@@ -436,14 +443,20 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
             None,
         ))
     } else {
+        let field_type_name = if is_hash {
+            format!("HashSet<{}>", name2rust(trimmed_name, true))
+        } else {
+            name2rust(trimmed_name, true)
+        };
         Some((
             OutputField {
                 field_name: String::from(trimmed_name),
-                field_type: name2rust(trimmed_name, true),
+                field_type: field_type_name,
                 id: is_id,
                 read_only: is_read_only,
             },
             Some(Enum {
+                type_name: name2rust(trimmed_name, true),
                 values: field_type_components,
             }),
         ))
