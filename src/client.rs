@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::iter::{Chain, Filter};
+use std::iter::{Chain};
 use std::mem;
 use std::mem::{swap, take};
 use std::ops::{Deref, DerefMut};

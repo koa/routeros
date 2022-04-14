@@ -167,12 +167,13 @@ fn dump_module(
         writeln!(file, "{prefix}use crate::RosError;")?;
         writeln!(
             file,
-            "{prefix}use crate::model::{{Auto, Duration, IpNetAddr, ValueFormat, FieldDescription}};"
+            "{prefix}use crate::model::{{Auto, IpNetAddr, ValueFormat, FieldDescription}};"
         )?;
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
         writeln!(file, "{prefix}use std::ops::RangeInclusive;")?;
         writeln!(file, "{prefix}use std::net::IpAddr;")?;
+        writeln!(file, "{prefix}use std::time::Duration;")?;
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
             writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone, Hash)]")?;
