@@ -14,9 +14,9 @@ use async_trait::async_trait;
 use mac_address::MacParseError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use crate::client::Client;
 
-use crate::routeros::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource};
-use crate::{Client, ValueFormat};
+use crate::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource, ValueFormat};
 
 #[derive(Debug)]
 pub enum RosError {
@@ -77,11 +77,13 @@ impl From<ParseBoolError> for RosError {
         RosError::ParseBoolError(e)
     }
 }
+
 impl From<AddrParseError> for RosError {
     fn from(e: AddrParseError) -> Self {
         RosError::AddrParseError(e)
     }
 }
+
 impl From<MacParseError> for RosError {
     fn from(e: MacParseError) -> Self {
         RosError::MacParseError(e)
@@ -93,11 +95,13 @@ impl From<tokio::io::Error> for RosError {
         RosError::TokioError(e)
     }
 }
+
 impl From<String> for RosError {
     fn from(e: String) -> Self {
         RosError::SimpleMessage(e)
     }
 }
+
 impl From<&str> for RosError {
     fn from(e: &str) -> Self {
         RosError::SimpleMessage(String::from(e))
@@ -128,6 +132,7 @@ enum Query {
     Lt { key: String, value: String },
     Gt { key: String, value: String },
 }
+
 #[derive(Debug, Clone)]
 enum ApiWord {
     Command(String),
@@ -217,16 +222,16 @@ impl ApiWord {
     }
 
     pub fn command<S>(cmd: S) -> ApiWord
-    where
-        S: ToString,
+        where
+            S: ToString,
     {
         ApiWord::Command(cmd.to_string())
     }
 
     pub fn attribute<K, V>(key: K, value: V) -> ApiWord
-    where
-        K: ToString,
-        V: ToString,
+        where
+            K: ToString,
+            V: ToString,
     {
         ApiWord::Attribute {
             key: key.to_string(),
@@ -252,8 +257,8 @@ impl ApiWord {
                 ApiReplyType::Trap => "!trap",
                 ApiReplyType::Fatal => "!fatal",
             }
-            .as_bytes()
-            .into(),
+                .as_bytes()
+                .into(),
         }
     }
 
@@ -329,7 +334,7 @@ impl<'a> ApiRos {
                 ((l >> 8) & 0xFF) as u8,
                 (l & 0xFF) as u8,
             ])
-            .await?;
+                .await?;
         } else if len < 0x10000000 {
             let l = len | 0xE0000000;
             self.write_bytes(&[
@@ -338,7 +343,7 @@ impl<'a> ApiRos {
                 ((l >> 8) & 0xFF) as u8,
                 (l & 0xFF) as u8,
             ])
-            .await?;
+                .await?;
         } else {
             self.write_bytes(&[
                 (0xF0) as u8,
@@ -347,7 +352,7 @@ impl<'a> ApiRos {
                 ((len >> 8) & 0xFF) as u8,
                 (len & 0xFF) as u8,
             ])
-            .await?;
+                .await?;
         }
         Ok(())
     }
@@ -416,8 +421,8 @@ impl<'a> ApiRos {
     }
 
     async fn write_sentence<I>(&mut self, words: I) -> Result<u32, RosError>
-    where
-        I: Iterator<Item = ApiWord>,
+        where
+            I: Iterator<Item=ApiWord>,
     {
         let mut ret: u32 = 0;
         for w in words {
@@ -432,9 +437,9 @@ impl<'a> ApiRos {
     }
 
     async fn talk<W, C>(&mut self, words: W, callback: &mut C) -> Result<(), RosError>
-    where
-        W: IntoIterator<Item = ApiWord>,
-        C: FnMut(ApiWord) -> Result<(), RosError>,
+        where
+            W: IntoIterator<Item=ApiWord>,
+            C: FnMut(ApiWord) -> Result<(), RosError>,
     {
         self.write_sentence(words.into_iter()).await?;
 
@@ -475,15 +480,15 @@ impl<'a> ApiRos {
     }
 
     async fn talk_vec<W>(&mut self, words: W) -> Result<Vec<ApiWord>, RosError>
-    where
-        W: IntoIterator<Item = ApiWord>,
+        where
+            W: IntoIterator<Item=ApiWord>,
     {
         let mut r = Vec::new();
         self.talk(words, &mut |word| {
             r.push(word);
             Ok(())
         })
-        .await?;
+            .await?;
         Ok(r)
     }
 
@@ -527,9 +532,11 @@ impl<'a> ApiRos {
         */
     }
 }
+
 pub struct ApiClient {
     api: ApiRos,
 }
+
 impl ApiClient {
     pub async fn new(
         target: IpAddr,
@@ -545,8 +552,8 @@ impl ApiClient {
     }
 
     async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         let mut request: Vec<ApiWord> = Vec::new();
         let path = Resource::resource_path();
@@ -572,8 +579,8 @@ impl ApiClient {
 #[async_trait]
 impl Client<RosError> for ApiClient {
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, RosError>
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         let path = Resource::resource_path();
         let command = format!("{}/print", path);
@@ -634,8 +641,8 @@ impl Client<RosError> for ApiClient {
     }
 
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsListResource,
+        where
+            Resource: RouterOsListResource,
     {
         {
             self.set(resource).await
@@ -643,15 +650,15 @@ impl Client<RosError> for ApiClient {
     }
 
     async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsSingleResource,
+        where
+            Resource: RouterOsSingleResource,
     {
         self.set(resource).await
     }
 
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsListResource,
+        where
+            Resource: RouterOsListResource,
     {
         let mut request: Vec<ApiWord> = Vec::new();
         let path = Resource::resource_path();
@@ -667,8 +674,8 @@ impl Client<RosError> for ApiClient {
         Ok(())
     }
     async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsListResource,
+        where
+            Resource: RouterOsListResource,
     {
         let mut request: Vec<ApiWord> = Vec::new();
         if let Some((description, value)) = resource.id_field() {

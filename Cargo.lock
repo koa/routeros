@@ -782,7 +782,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "routeros-test"
+name = "routeros"
 version = "0.1.0"
 dependencies = [
  "async-trait",

@@ -121,6 +121,7 @@ fn main() -> std::io::Result<()> {
     std::io::Result::Ok(())
 }
 
+/*
 fn create_storage(
     file: &mut BufWriter<File>,
     module_data: &OutputModule,
@@ -137,14 +138,14 @@ fn create_storage(
     if !module_data.content.is_empty() {
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         //let field_name = module_path[1..].join("-").to_case(Case::Snake);
-        writeln!(file, "    {model_name},",)?;
+        writeln!(file, "    {model_name},", )?;
     }
     for (module_name, module_data) in module_data.sub_modules.iter() {
         create_storage(file, module_data, &module_path, module_name)?;
     }
     Ok(())
 }
-
+*/
 fn dump_module(
     file: &mut BufWriter<File>,
     module_data: &OutputModule,
@@ -163,10 +164,10 @@ fn dump_module(
     let prefix = "  ".repeat(depth.into());
     if !module_data.content.is_empty() {
         //writeln!(file, "{prefix}use ros_macro::RouterOsApiFieldAccess;")?;
-        writeln!(file, "{prefix}use crate::routeros::client::api::RosError;")?;
+        writeln!(file, "{prefix}use crate::client::api::RosError;")?;
         writeln!(
             file,
-            "{prefix}use crate::routeros::model::{{Auto, Duration, IpNetAddr, ValueFormat, FieldDescription}};"
+            "{prefix}use crate::model::{{Auto, Duration, IpNetAddr, ValueFormat, FieldDescription}};"
         )?;
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
@@ -186,7 +187,7 @@ fn dump_module(
                 expand_enum_name(type_values.values.iter().next().unwrap().as_str()).unwrap();
             writeln!(
                 file,
-                "{prefix}impl crate::routeros::model::RosValue for {type_name} {{"
+                "{prefix}impl crate::model::RosValue for {type_name} {{"
             )?;
             writeln!(file, "{prefix}  type Type = {type_name};")?;
             writeln!(file, "{prefix}  type Err = RosError;")?;
@@ -235,7 +236,7 @@ fn dump_module(
 
         for field in module_data.content.iter() {
             let fd_name = field_description_name(&field.field_name);
-            writeln!(file, "{prefix}const {fd_name}:crate::routeros::model::FieldDescription=crate::routeros::model::FieldDescription{{")?;
+            writeln!(file, "{prefix}const {fd_name}:crate::model::FieldDescription=crate::model::FieldDescription{{")?;
             writeln!(file, "{prefix}  name:\"{}\",", field.field_name)?;
             writeln!(file, "{prefix}  is_read_only:{},", field.read_only)?;
             writeln!(file, "{prefix}  is_id:{},", field.id)?;
@@ -251,16 +252,16 @@ fn dump_module(
             let access = if is_id { "" } else { "pub " };
             writeln!(
                 file,
-                "{prefix}  {access}{field_name}: crate::routeros::model::RosFieldValue<{field_type}>,",
+                "{prefix}  {access}{field_name}: crate::model::RosFieldValue<{field_type}>,",
                 field_type = field.field_type
             )?;
         }
         writeln!(file, "{prefix}}}")?;
-        let field_name = module_path[1..].join("-").to_case(Case::Snake);
+        //let field_name = module_path[1..].join("-").to_case(Case::Snake);
         let module_path = module_path.join("/");
         writeln!(
             file,
-            "{prefix}impl crate::routeros::model::RouterOsResource for {model_name} {{"
+            "{prefix}impl crate::model::RouterOsResource for {model_name} {{"
         )?;
         writeln!(file, "{prefix}   fn resource_path() -> &'static str {{")?;
         writeln!(file, "{prefix}     \"{module_path}\"")?;
@@ -270,7 +271,7 @@ fn dump_module(
 
         writeln!(
             file,
-            "{prefix}impl crate::routeros::model::{variant} for {model_name} {{",
+            "{prefix}impl crate::model::{variant} for {model_name} {{",
             variant = if module_data.single_value {
                 "RouterOsSingleResource"
             } else {
@@ -281,13 +282,13 @@ fn dump_module(
 
         writeln!(
             file,
-            "{prefix}impl crate::routeros::model::RouterOsApiFieldAccess for {model_name} {{"
+            "{prefix}impl crate::model::RouterOsApiFieldAccess for {model_name} {{"
         )?;
-        writeln!(file, "{prefix}  fn fields_mut(&mut self) -> Box<dyn Iterator<Item = (&'static crate::routeros::model::FieldDescription, &mut dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
+        writeln!(file, "{prefix}  fn fields_mut(&mut self) -> Box<dyn Iterator<Item = (&'static crate::model::FieldDescription, &mut dyn crate::model::RosFieldAccessor)> + '_> {{")?;
 
         writeln!(
             file,
-            "{prefix}    let fields: Vec<(&'static crate::routeros::model::FieldDescription, &mut dyn crate::routeros::model::RosFieldAccessor)> = vec!["
+            "{prefix}    let fields: Vec<(&'static crate::model::FieldDescription, &mut dyn crate::model::RosFieldAccessor)> = vec!["
         )?;
         for field in module_data.content.iter() {
             let field_name_rust = expand_field_name(&field.field_name);
@@ -301,11 +302,11 @@ fn dump_module(
         writeln!(file, "{prefix}    Box::new(fields.into_iter())")?;
         writeln!(file, "{prefix}  }}")?;
 
-        writeln!(file, "{prefix}  fn fields(&self) -> Box<dyn Iterator<Item = (&'static crate::routeros::model::FieldDescription, &dyn crate::routeros::model::RosFieldAccessor)> + '_> {{")?;
+        writeln!(file, "{prefix}  fn fields(&self) -> Box<dyn Iterator<Item = (&'static crate::model::FieldDescription, &dyn crate::model::RosFieldAccessor)> + '_> {{")?;
 
         writeln!(
             file,
-            "{prefix}    let fields: Vec<(&'static crate::routeros::model::FieldDescription, &dyn crate::routeros::model::RosFieldAccessor)> = vec!["
+            "{prefix}    let fields: Vec<(&'static crate::model::FieldDescription, &dyn crate::model::RosFieldAccessor)> = vec!["
         )?;
         for field in module_data.content.iter() {
             let field_name_rust = expand_field_name(&field.field_name);
@@ -343,6 +344,7 @@ fn dump_module(
 fn expand_enum_name(name: &str) -> Option<String> {
     Some(name2rust(name, true)).filter(|v| !v.is_empty())
 }
+
 fn expand_field_name(name: &str) -> String {
     name2rust(name, false).to_case(Case::Snake)
 }
@@ -390,8 +392,8 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
         }
     }
     //let mut closure_field_type = field_type.clone();
-    let mut push_to_components = |field_type_components: &mut Vec<String>,
-                                  field_type: &mut String| {
+    let push_to_components = |field_type_components: &mut Vec<String>,
+                              field_type: &mut String| {
         let striped_field_type = String::from(field_type.trim());
         if striped_field_type.len() > 0 {
             field_type_components.push(striped_field_type);
@@ -462,6 +464,7 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
         ))
     };
 }
+
 fn field_description_name(field_name: &str) -> String {
     format!(
         "{}_FIELD_DESCRIPTION",

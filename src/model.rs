@@ -8,7 +8,7 @@ use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut, RangeInclusive};
 use std::str::{FromStr, ParseBoolError};
 
-use crate::routeros::client::api::RosError;
+use crate::client::api::RosError;
 
 #[derive(Debug, Clone)]
 pub struct RosFieldValue<T>

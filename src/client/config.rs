@@ -1,20 +1,23 @@
-use crate::routeros::client::api::RosError;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-
-use crate::routeros::model::{RouterOsListResource, RouterOsSingleResource, ValueFormat};
-use crate::{Client, Ethernet, ResourceListAccess};
-use crate::{RouterOsResource, Wireless};
-use async_trait::async_trait;
-use field_ref::field_ref_of;
 use std::future::ready;
 use std::mem::take;
+
+use async_trait::async_trait;
+use field_ref::field_ref_of;
+
+use crate::client::api::RosError;
+use crate::client::Client;
+use crate::generated::interface::ethernet::Ethernet;
+use crate::generated::interface::wireless::Wireless;
+use crate::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource, ValueFormat};
 
 pub struct ConfigClient {
     output: String,
     model: HashMap<&'static str, Vec<HashMap<&'static str, String>>>,
     current_context: &'static str,
 }
+
 pub enum RosModel {
     Crs109,
 }
@@ -78,8 +81,8 @@ impl ConfigClient {
         }
     }
     fn append_modified_fields<Resource>(&mut self, resource: &Resource)
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         resource
             .fields()
@@ -101,8 +104,8 @@ impl ConfigClient {
     }
 
     fn write_resource<Resource>(resource: Resource, found_ref: &mut HashMap<&str, String>)
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         for (key, value) in resource
             .fields()
@@ -112,6 +115,7 @@ impl ConfigClient {
         }
     }
 }
+
 fn quote_routeros(value: &str) -> String {
     let mut ret = String::with_capacity(value.len() + 2);
     ret.push('"');
@@ -137,8 +141,8 @@ impl ToString for ConfigClient {
 #[async_trait]
 impl Client<RosError> for ConfigClient {
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, RosError>
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         let values = self.values_of_resource::<Resource>();
         let mut stored_data = Vec::new();
@@ -155,8 +159,8 @@ impl Client<RosError> for ConfigClient {
     }
 
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsListResource,
+        where
+            Resource: RouterOsListResource,
     {
         if let Some((description, field)) = resource.id_field() {
             let key = description.name;
@@ -181,8 +185,8 @@ impl Client<RosError> for ConfigClient {
     }
 
     async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsSingleResource,
+        where
+            Resource: RouterOsSingleResource,
     {
         self.ensure_context(Resource::resource_path());
         self.output.push_str(&format!("set"));
@@ -199,8 +203,8 @@ impl Client<RosError> for ConfigClient {
     }
 
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         if resource.is_modified() {
             self.ensure_context(Resource::resource_path());
@@ -217,8 +221,8 @@ impl Client<RosError> for ConfigClient {
     }
 
     async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
-    where
-        Resource: RouterOsResource,
+        where
+            Resource: RouterOsResource,
     {
         if let Some((description, field)) = resource.id_field() {
             let key = description.name;
