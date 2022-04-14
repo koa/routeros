@@ -53,6 +53,9 @@ slave: bool
 !rx-align-error:u64
 !rx-fragment:u64
 !rx-overflow:u64
+!rx-jabber: u64
+!rx-unicast: u64
+!rx-error-events:u64
 !tx-64:u64
 !tx-65-127:u64
 !tx-128-255:u64
@@ -64,6 +67,7 @@ slave: bool
 !tx-broadcast:u64
 !tx-pause:u64
 !tx-multicast:u64
+!tx-unicast: u64
 !tx-underrun:u64
 !tx-collision:u64
 !tx-excessive-collision:u64
@@ -72,6 +76,7 @@ slave: bool
 !tx-excessive-deferred:u64
 !tx-deferred:u64
 !tx-late-collision:u64
+!tx-drop: u64
 !tx-queue0-packet:u64
 !tx-queue0-byte:u64
 !tx-queue1-packet:u64
@@ -94,6 +99,13 @@ slave: bool
 !tx-queue-custom0-drop-byte:u64
 !tx-queue-custom1-drop-packet:u64
 !tx-queue-custom1-drop-byte:u64
+!tx-rx-64:u64
+!tx-rx-65-127:u64
+!tx-rx-128-255:u64
+!tx-rx-256-511:u64
+!tx-rx-512-1023:u64
+!tx-rx-1024-max:u64
+
 !policy-drop-packet:u64
 !custom-drop-packet:u64
 !current-learned:u64
@@ -127,6 +139,7 @@ protocol: 802.2,arp,homeplug-av,ip,ipv6,ipx,length,llc-bpdu,lldp,loop-protect,mp
 service-dei
 service-vid:u16
 swap-vids: assign-cvid-to-svid,no
+message
 
 dynamic:bool
 
@@ -142,7 +155,7 @@ ports:HashSet<String>
 qos-group
 svl:bool
 vlan-id:u16
-
+message
 dynamic:bool
 
 /interface/wireless

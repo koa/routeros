@@ -164,7 +164,7 @@ fn dump_module(
     let prefix = "  ".repeat(depth.into());
     if !module_data.content.is_empty() {
         //writeln!(file, "{prefix}use ros_macro::RouterOsApiFieldAccess;")?;
-        writeln!(file, "{prefix}use crate::client::api::RosError;")?;
+        writeln!(file, "{prefix}use crate::RosError;")?;
         writeln!(
             file,
             "{prefix}use crate::model::{{Auto, Duration, IpNetAddr, ValueFormat, FieldDescription}};"

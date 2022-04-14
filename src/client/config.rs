@@ -6,11 +6,11 @@ use std::mem::take;
 use async_trait::async_trait;
 use field_ref::field_ref_of;
 
-use crate::client::api::RosError;
 use crate::client::Client;
 use crate::generated::interface::ethernet::Ethernet;
 use crate::generated::interface::wireless::Wireless;
 use crate::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource, ValueFormat};
+use crate::RosError;
 
 pub struct ConfigClient {
     output: String,

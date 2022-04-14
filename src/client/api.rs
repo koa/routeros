@@ -1,120 +1,17 @@
 extern crate crypto;
 
 use std::cell::RefCell;
-use std::convert::Infallible;
 use std::fmt::Debug;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::net::{AddrParseError, IpAddr, SocketAddr};
-use std::num::ParseIntError;
-use std::str::ParseBoolError;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use mac_address::MacParseError;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
 use crate::client::Client;
-
 use crate::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource, ValueFormat};
-
-#[derive(Debug)]
-pub enum RosError {
-    TokioError(tokio::io::Error),
-    SimpleMessage(String),
-    ParseIntError(ParseIntError),
-    ParseBoolError(ParseBoolError),
-    AddrParseError(AddrParseError),
-    MacParseError(MacParseError),
-    Umbrella(Vec<RosError>),
-    FieldWriteError {
-        field_name: String,
-        field_value: String,
-        error: Box<RosError>,
-    },
-}
-
-impl Display for RosError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RosError::TokioError(e) => Display::fmt(&e, f),
-            RosError::SimpleMessage(msg) => f.write_str(msg),
-            RosError::ParseIntError(e) => std::fmt::Display::fmt(&e, f),
-            RosError::ParseBoolError(e) => std::fmt::Display::fmt(&e, f),
-            RosError::AddrParseError(e) => std::fmt::Display::fmt(&e, f),
-            RosError::MacParseError(e) => std::fmt::Display::fmt(&e, f),
-            RosError::Umbrella(errors) => {
-                for error in errors {
-                    std::fmt::Display::fmt(&error, f)?;
-                }
-                Ok(())
-            }
-            RosError::FieldWriteError {
-                field_name,
-                field_value,
-                error,
-            } => {
-                f.write_str("Error on field ")?;
-                f.write_str(&field_name)?;
-                f.write_str(" value ")?;
-                f.write_str(&field_value)?;
-                f.write_str(": ")?;
-                std::fmt::Display::fmt(&error, f)?;
-                Ok(())
-            }
-        }
-    }
-}
-
-impl From<ParseIntError> for RosError {
-    fn from(e: ParseIntError) -> Self {
-        RosError::ParseIntError(e)
-    }
-}
-
-impl From<ParseBoolError> for RosError {
-    fn from(e: ParseBoolError) -> Self {
-        RosError::ParseBoolError(e)
-    }
-}
-
-impl From<AddrParseError> for RosError {
-    fn from(e: AddrParseError) -> Self {
-        RosError::AddrParseError(e)
-    }
-}
-
-impl From<MacParseError> for RosError {
-    fn from(e: MacParseError) -> Self {
-        RosError::MacParseError(e)
-    }
-}
-
-impl From<tokio::io::Error> for RosError {
-    fn from(e: tokio::io::Error) -> Self {
-        RosError::TokioError(e)
-    }
-}
-
-impl From<String> for RosError {
-    fn from(e: String) -> Self {
-        RosError::SimpleMessage(e)
-    }
-}
-
-impl From<&str> for RosError {
-    fn from(e: &str) -> Self {
-        RosError::SimpleMessage(String::from(e))
-    }
-}
-
-impl From<Infallible> for RosError {
-    fn from(_: Infallible) -> Self {
-        panic!("Infallible means it cannot happen");
-    }
-}
-
-impl std::error::Error for RosError {}
+use crate::RosError;
 
 #[derive(Debug, Clone)]
 enum ApiReplyType {
@@ -601,6 +498,7 @@ impl Client<RosError> for ApiClient {
                     {
                         field_accessor.set_from_api(value.as_str()).map_err(|e| {
                             RosError::FieldWriteError {
+                                structure: path,
                                 field_name: key.to_string(),
                                 field_value: value.to_string(),
                                 error: Box::new(e),
@@ -608,9 +506,7 @@ impl Client<RosError> for ApiClient {
                         })?;
                         Ok(())
                     } else {
-                        Err(RosError::from(format!(
-                            "Unknown key: {key}, value: {value}"
-                        )))
+                        Err(RosError::field_missing_error(path, &key, &value))
                     }
                 }
                 ApiWord::Reply(ApiReplyType::Done) => {
@@ -636,7 +532,9 @@ impl Client<RosError> for ApiClient {
                 ApiWord::Reply(_) => Ok(()),
             })
             .await?;
-        ret.remove(0);
+        if ret.len() > 0 {
+            ret.remove(0);
+        }
         Ok(ret)
     }
 

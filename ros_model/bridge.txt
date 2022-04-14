@@ -77,3 +77,8 @@ transmit-hold-count: u8
 vlan-filtering: bool
 dhcp-snooping: bool
 running: bool
+region-name
+region-revision:u8
+max-hops: u8
+pvid: u16
+ingress-filtering: bool

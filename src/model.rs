@@ -7,8 +7,8 @@ use std::net::{AddrParseError, IpAddr, Ipv4Addr};
 use std::num::ParseIntError;
 use std::ops::{Deref, DerefMut, RangeInclusive};
 use std::str::{FromStr, ParseBoolError};
+use crate::RosError;
 
-use crate::client::api::RosError;
 
 #[derive(Debug, Clone)]
 pub struct RosFieldValue<T>
