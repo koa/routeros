@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::iter::Chain;
+use std::iter::{Chain, Filter};
 use std::mem;
 use std::mem::{swap, take};
 use std::ops::{Deref, DerefMut};
@@ -198,6 +198,13 @@ impl<R> ResourceListAccess<R>
         swap(&mut list, &mut self.fetched_data);
         self.remove_if_not_touched.append(&mut list);
     }
+    pub fn put_all_aside_and_mutate<M>(&mut self, mutator: &M) where
+        M: Fn(&mut R), {
+        self.put_all_aside();
+        for entry in self.remove_if_not_touched.iter_mut() {
+            mutator(entry);
+        }
+    }
     pub fn put_aside<F>(&mut self, filter: &F)
         where
             F: Fn(&R) -> bool,
@@ -208,6 +215,19 @@ impl<R> ResourceListAccess<R>
         self.fetched_data = keep;
         self.remove_if_not_touched.append(&mut remove);
     }
+    pub fn put_aside_and_mutate<F, M>(&mut self, filter: &F, mutator: &M)
+        where
+            F: Fn(&R) -> bool,
+            M: Fn(&mut R),
+    {
+        self.put_aside(filter);
+        for entry in self.remove_if_not_touched.iter_mut() {
+            if filter(entry) {
+                mutator(entry);
+            }
+        }
+    }
+
     pub fn get_or_create_by_value<V>(
         &mut self,
         field: &FieldRef<R, RosFieldValue<V>>,
