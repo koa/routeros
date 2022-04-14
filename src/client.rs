@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::iter::{Chain};
+use std::iter::Chain;
 use std::mem;
 use std::mem::{swap, take};
 use std::ops::{Deref, DerefMut};
@@ -8,19 +8,21 @@ use std::slice::{Iter, IterMut};
 use async_trait::async_trait;
 use field_ref::FieldRef;
 
-use crate::model::{RosFieldValue, RosValue, RouterOsListResource, RouterOsResource, RouterOsSingleResource};
+use crate::model::{
+    RosFieldValue, RosValue, RouterOsListResource, RouterOsResource, RouterOsSingleResource,
+};
 
 pub mod api;
 pub mod config;
 
 #[async_trait]
 pub trait Client<Error>
-    where
-        Error: std::error::Error,
+where
+    Error: std::error::Error,
 {
     async fn fetch<Resource>(&mut self) -> Result<ResourceListAccess<Resource>, Error>
-        where
-            Resource: RouterOsListResource,
+    where
+        Resource: RouterOsListResource,
     {
         let fetched_data: Vec<Resource> = self.list().await?;
         Ok(ResourceListAccess {
@@ -31,8 +33,8 @@ pub trait Client<Error>
         })
     }
     async fn get<Resource>(&mut self) -> Result<ResourceSingleAccess<Resource>, Error>
-        where
-            Resource: RouterOsSingleResource,
+    where
+        Resource: RouterOsSingleResource,
     {
         let value = if let Some(value) = self.list().await?.into_iter().next() {
             value
@@ -42,26 +44,26 @@ pub trait Client<Error>
         Ok(ResourceSingleAccess { data: value })
     }
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, Error>
-        where
-            Resource: RouterOsResource;
+    where
+        Resource: RouterOsResource;
     async fn update<Resource>(&mut self, resource: Resource) -> Result<(), Error>
-        where
-            Resource: RouterOsListResource;
+    where
+        Resource: RouterOsListResource;
     async fn set<Resource>(&mut self, resource: Resource) -> Result<(), Error>
-        where
-            Resource: RouterOsSingleResource;
+    where
+        Resource: RouterOsSingleResource;
     async fn add<Resource>(&mut self, resource: Resource) -> Result<(), Error>
-        where
-            Resource: RouterOsListResource;
+    where
+        Resource: RouterOsListResource;
     async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), Error>
-        where
-            Resource: RouterOsListResource;
+    where
+        Resource: RouterOsListResource;
 }
 
 #[derive(Debug, Default)]
 pub struct ResourceListAccess<Resource>
-    where
-        Resource: RouterOsListResource,
+where
+    Resource: RouterOsListResource,
 {
     fetched_data: Vec<Resource>,
     new_data: Vec<Resource>,
@@ -71,8 +73,8 @@ pub struct ResourceListAccess<Resource>
 
 #[derive(Debug, Default)]
 pub struct ResourceSingleAccess<Resource>
-    where
-        Resource: RouterOsSingleResource,
+where
+    Resource: RouterOsSingleResource,
 {
     data: Resource,
 }
@@ -94,16 +96,16 @@ impl<R: RouterOsSingleResource> DerefMut for ResourceSingleAccess<R> {
 // unsafe impl<R> Send for ResourceAccess<R> where R: RouterOsResource {}
 
 impl<R> ResourceSingleAccess<R>
-    where
-        R: RouterOsSingleResource,
+where
+    R: RouterOsSingleResource,
 {
     pub fn commit<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output=Result<(), E>> + 'a
-        where
-            C: Client<E> + 'a,
-            E: std::error::Error,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
     {
         let data = take(&mut self.data);
         async {
@@ -115,10 +117,10 @@ impl<R> ResourceSingleAccess<R>
     pub fn rollback<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output=Result<(), E>> + 'a
-        where
-            C: Client<E> + 'a,
-            E: std::error::Error,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
     {
         async {
             let fetched_data: Vec<R> = client.list().await?;
@@ -133,15 +135,15 @@ impl<R> ResourceSingleAccess<R>
 }
 
 impl<R> ResourceListAccess<R>
-    where
-        R: RouterOsListResource,
+where
+    R: RouterOsListResource,
 {
     /*pub fn add(&mut self, r: R) {
         self.new_data.push(r);
     }*/
     pub fn remove<P>(&mut self, filter: P)
-        where
-            P: Fn(&R) -> bool,
+    where
+        P: Fn(&R) -> bool,
     {
         self.new_data.retain(|r| !filter(r));
 
@@ -158,8 +160,8 @@ impl<R> ResourceListAccess<R>
         self.remove_data.extend(remove);
     }
     pub fn find_mut<P>(&mut self, filter: P) -> Vec<&mut R>
-        where
-            P: Fn(&R) -> bool,
+    where
+        P: Fn(&R) -> bool,
     {
         let mut ret: Vec<&mut R> = Vec::new();
         for entry in self.fetched_data.iter_mut() {
@@ -175,8 +177,8 @@ impl<R> ResourceListAccess<R>
         ret
     }
     pub fn get_or_default<'a, F>(&'a mut self, filter: F) -> &'a mut R
-        where
-            F: Fn(&R) -> bool,
+    where
+        F: Fn(&R) -> bool,
     {
         if let Some(found_index) = self.fetched_data.iter().position(&filter) {
             return &mut self.fetched_data[found_index];
@@ -198,16 +200,18 @@ impl<R> ResourceListAccess<R>
         swap(&mut list, &mut self.fetched_data);
         self.remove_if_not_touched.append(&mut list);
     }
-    pub fn put_all_aside_and_mutate<M>(&mut self, mutator: &M) where
-        M: Fn(&mut R), {
+    pub fn put_all_aside_and_mutate<M>(&mut self, mutator: &M)
+    where
+        M: Fn(&mut R),
+    {
         self.put_all_aside();
         for entry in self.remove_if_not_touched.iter_mut() {
             mutator(entry);
         }
     }
     pub fn put_aside<F>(&mut self, filter: &F)
-        where
-            F: Fn(&R) -> bool,
+    where
+        F: Fn(&R) -> bool,
     {
         let mut list = Vec::new();
         swap(&mut list, &mut self.fetched_data);
@@ -216,9 +220,9 @@ impl<R> ResourceListAccess<R>
         self.remove_if_not_touched.append(&mut remove);
     }
     pub fn put_aside_and_mutate<F, M>(&mut self, filter: &F, mutator: &M)
-        where
-            F: Fn(&R) -> bool,
-            M: Fn(&mut R),
+    where
+        F: Fn(&R) -> bool,
+        M: Fn(&mut R),
     {
         self.put_aside(filter);
         for entry in self.remove_if_not_touched.iter_mut() {
@@ -233,8 +237,8 @@ impl<R> ResourceListAccess<R>
         field: &FieldRef<R, RosFieldValue<V>>,
         value: V,
     ) -> &mut R
-        where
-            V: RosValue<Type=V>,
+    where
+        V: RosValue<Type = V>,
     {
         let entry =
             self.get_or_default(|b| field.get(b).as_ref().map(|s| s == &value).unwrap_or(false));
@@ -248,8 +252,8 @@ impl<R> ResourceListAccess<R>
         field2: &FieldRef<R, RosFieldValue<V>>,
         value2: V,
     ) -> &mut R
-        where
-            V: RosValue<Type=V>,
+    where
+        V: RosValue<Type = V>,
     {
         let entry = self.get_or_default(|b| {
             field1
@@ -258,10 +262,10 @@ impl<R> ResourceListAccess<R>
                 .map(|s| s == &value1)
                 .unwrap_or(false)
                 && field2
-                .get(b)
-                .as_ref()
-                .map(|s| s == &value2)
-                .unwrap_or(false)
+                    .get(b)
+                    .as_ref()
+                    .map(|s| s == &value2)
+                    .unwrap_or(false)
         });
         field1.get_mut(entry).set(value1);
         field2.get_mut(entry).set(value2);
@@ -270,10 +274,10 @@ impl<R> ResourceListAccess<R>
     pub fn commit<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output=Result<(), E>> + 'a
-        where
-            C: Client<E> + 'a,
-            E: std::error::Error,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
     {
         let modified_entries: Vec<R> = self
             .fetched_data
@@ -319,10 +323,10 @@ impl<R> ResourceListAccess<R>
     pub fn rollback<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output=Result<(), E>> + 'a
-        where
-            C: Client<E> + 'a,
-            E: std::error::Error,
+    ) -> impl Future<Output = Result<(), E>> + 'a
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error,
     {
         async {
             let fetched_data: Vec<R> = client.list().await?;

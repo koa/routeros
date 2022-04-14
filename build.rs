@@ -393,8 +393,7 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
         }
     }
     //let mut closure_field_type = field_type.clone();
-    let push_to_components = |field_type_components: &mut Vec<String>,
-                              field_type: &mut String| {
+    let push_to_components = |field_type_components: &mut Vec<String>, field_type: &mut String| {
         let striped_field_type = String::from(field_type.trim());
         if striped_field_type.len() > 0 {
             field_type_components.push(striped_field_type);

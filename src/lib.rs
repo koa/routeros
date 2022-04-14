@@ -4,9 +4,8 @@ use std::net::AddrParseError;
 use std::num::ParseIntError;
 use std::str::ParseBoolError;
 
-use mac_address::MacParseError;
 use crate::RosError::FieldMissingError;
-
+use mac_address::MacParseError;
 
 pub mod client;
 pub mod model;
@@ -38,8 +37,13 @@ impl RosError {
     pub fn field_missing_error(
         structure: &'static str,
         field_name: &str,
-        field_value: &str) -> RosError {
-        FieldMissingError { structure, field_name: field_name.to_string(), field_value: field_value.to_string() }
+        field_value: &str,
+    ) -> RosError {
+        FieldMissingError {
+            structure,
+            field_name: field_name.to_string(),
+            field_value: field_value.to_string(),
+        }
     }
 }
 
@@ -59,7 +63,8 @@ impl Display for RosError {
                 Ok(())
             }
             RosError::FieldWriteError {
-                structure, field_name,
+                structure,
+                field_name,
                 field_value,
                 error,
             } => {
@@ -73,7 +78,11 @@ impl Display for RosError {
                 std::fmt::Display::fmt(&error, f)?;
                 Ok(())
             }
-            RosError::FieldMissingError { structure, field_name, field_value } => {
+            RosError::FieldMissingError {
+                structure,
+                field_name,
+                field_value,
+            } => {
                 f.write_str("Missing ")?;
                 f.write_str(structure)?;
                 f.write_str(": ")?;

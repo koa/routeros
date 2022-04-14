@@ -15,16 +15,16 @@ use crate::RosError;
 
 #[derive(Debug, Clone)]
 pub struct RosFieldValue<T>
-    where
-        T: RosValue<Type=T>,
+where
+    T: RosValue<Type = T>,
 {
     original_value: String,
     current_value: Option<T>,
 }
 
 impl<T> Default for RosFieldValue<T>
-    where
-        T: RosValue<Type=T>,
+where
+    T: RosValue<Type = T>,
 {
     fn default() -> Self {
         Self {
@@ -56,9 +56,9 @@ pub trait RosFieldAccessor {
 }
 
 impl<T> Display for RosFieldValue<T>
-    where
-        T: RosValue<Type=T>,
-        T: Display,
+where
+    T: RosValue<Type = T>,
+    T: Display,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if let Some(value) = self.current_value.as_ref() {
@@ -71,8 +71,8 @@ impl<T> Display for RosFieldValue<T>
 }
 
 impl<T> RosFieldValue<T>
-    where
-        T: RosValue<Type=T>,
+where
+    T: RosValue<Type = T>,
 {
     pub fn get(&self) -> &Option<T> {
         &self.current_value
@@ -99,9 +99,9 @@ impl<T> RosFieldValue<T>
 }
 
 impl<T> RosFieldAccessor for RosFieldValue<T>
-    where
-        T: RosValue<Type=T> + Eq,
-// Err: Into<RosError>,
+where
+    T: RosValue<Type = T> + Eq,
+    // Err: Into<RosError>,
 {
     fn modified_value(&self, format: &ValueFormat) -> Option<String> {
         let original_value = self.original_value_converted();
@@ -150,17 +150,16 @@ impl<T> RosFieldAccessor for RosFieldValue<T>
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Auto<V>
-    where
-        V: RosValue,
+where
+    V: RosValue,
 {
     Auto,
     Value(V),
 }
 
-
 impl<T> Deref for RosFieldValue<T>
-    where
-        T: RosValue<Type=T>,
+where
+    T: RosValue<Type = T>,
 {
     type Target = Option<T::Type>;
     fn deref(&self) -> &Self::Target {
@@ -169,8 +168,8 @@ impl<T> Deref for RosFieldValue<T>
 }
 
 impl<T> DerefMut for RosFieldValue<T>
-    where
-        T: RosValue<Type=T>,
+where
+    T: RosValue<Type = T>,
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.current_value
@@ -178,8 +177,8 @@ impl<T> DerefMut for RosFieldValue<T>
 }
 
 impl<RV> RosValue for HashSet<RV>
-    where
-        RV: RosValue<Type=RV> + Eq + Hash,
+where
+    RV: RosValue<Type = RV> + Eq + Hash,
 {
     type Type = HashSet<RV>;
     type Err = RV::Err;
@@ -251,8 +250,8 @@ impl RosValue for String {
 }
 
 impl<V> RosValue for RangeInclusive<V>
-    where
-        V: RosValue<Type=V> + Copy + Eq,
+where
+    V: RosValue<Type = V> + Copy + Eq,
 {
     type Type = RangeInclusive<V>;
     type Err = V::Err;
@@ -289,7 +288,7 @@ impl RosValue for u16 {
         } else {
             value.parse()
         }
-            .map_err(RosError::from)
+        .map_err(RosError::from)
     }
 
     fn to_api(&self, _: &ValueFormat) -> String {
@@ -307,7 +306,7 @@ impl RosValue for u8 {
         } else {
             value.parse()
         }
-            .map_err(RosError::from)
+        .map_err(RosError::from)
     }
 
     fn to_api(&self, _: &ValueFormat) -> String {
@@ -325,7 +324,7 @@ impl RosValue for i8 {
         } else {
             value.parse()
         }
-            .map_err(RosError::from)
+        .map_err(RosError::from)
     }
 
     fn to_api(&self, _: &ValueFormat) -> String {
@@ -343,7 +342,7 @@ impl RosValue for u32 {
         } else {
             value.parse()
         }
-            .map_err(RosError::from)
+        .map_err(RosError::from)
     }
 
     fn to_api(&self, _: &ValueFormat) -> String {
@@ -487,9 +486,9 @@ impl RosValue for IpNetAddr {
 }
 
 impl<V> RosValue for Auto<V>
-    where
-        V: RosValue<Type=V>,
-        RosError: From<<V as RosValue>::Err>,
+where
+    V: RosValue<Type = V>,
+    RosError: From<<V as RosValue>::Err>,
 {
     type Type = Auto<V>;
     type Err = RosError;
@@ -572,9 +571,14 @@ impl RosValue for Duration {
             hour_count += count;
         }
 
-        Ok(Duration::from_millis((second_count as u64
-            + minute_count as u64 * 60
-            + hour_count as u64 * 3600) * 1000 + milli_second_count as u64))
+        Ok(Duration::from_millis(
+            (second_count as u64
+                + minute_count as u64 * 60
+                + hour_count as u64 * 3600
+                + day_count as u64 * 3600 * 24)
+                * 1000
+                + milli_second_count as u64,
+        ))
     }
 
     fn to_api(&self, _: &ValueFormat) -> String {
@@ -603,20 +607,21 @@ impl RosValue for Duration {
         }
         if ret.is_empty() {
             String::from("0s")
-        } else { ret }
+        } else {
+            ret
+        }
     }
 }
 
-
 pub trait ResourceBuilder<R>: Send + Sync
-    where
-        R: RouterOsResource + Sized,
+where
+    R: RouterOsResource + Sized,
 {
     fn write_field<K, V>(&mut self, key: K, value: V) -> Result<(), RosError>
-        where
-            K: AsRef<str>,
-            V: AsRef<str>,
-            V: ToString;
+    where
+        K: AsRef<str>,
+        V: AsRef<str>,
+        V: ToString;
     fn build(self) -> R;
 }
 
@@ -630,17 +635,17 @@ pub struct FieldDescription {
 pub trait RouterOsApiFieldAccess {
     fn fields_mut(
         &mut self,
-    ) -> Box<dyn Iterator<Item=(&'static FieldDescription, &mut dyn RosFieldAccessor)> + '_>;
+    ) -> Box<dyn Iterator<Item = (&'static FieldDescription, &mut dyn RosFieldAccessor)> + '_>;
     fn fields(
         &self,
-    ) -> Box<dyn Iterator<Item=(&'static FieldDescription, &dyn RosFieldAccessor)> + '_>;
+    ) -> Box<dyn Iterator<Item = (&'static FieldDescription, &dyn RosFieldAccessor)> + '_>;
     fn is_dynamic(&self) -> bool {
         false
     }
 }
 
 pub trait RouterOsResource:
-Sized + Debug + Send + Default + RouterOsApiFieldAccess + Clone
+    Sized + Debug + Send + Default + RouterOsApiFieldAccess + Clone
 {
     fn resource_path() -> &'static str;
 
