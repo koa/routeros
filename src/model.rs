@@ -9,7 +9,6 @@ use std::time::Duration;
 
 use mac_address::MacAddress;
 use mac_address::MacParseError;
-use serde::de::Unexpected::Str;
 
 use crate::RosError;
 
