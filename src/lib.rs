@@ -8,6 +8,7 @@ use crate::RosError::FieldMissingError;
 use mac_address::MacParseError;
 
 pub mod client;
+pub mod hardware;
 pub mod model;
 include!(concat!(env!("OUT_DIR"), "/generated.rs"));
 

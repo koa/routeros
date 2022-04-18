@@ -154,7 +154,7 @@ learn:bool
 ports:HashSet<String>
 qos-group
 svl:bool
-vlan-id:u16
+*vlan-id:u16
 message
 dynamic:bool
 

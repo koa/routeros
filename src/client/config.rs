@@ -4,11 +4,9 @@ use std::future::ready;
 use std::mem::take;
 
 use async_trait::async_trait;
-use field_ref::field_ref_of;
 
 use crate::client::Client;
-use crate::generated::interface::ethernet::Ethernet;
-use crate::generated::interface::wireless::Wireless;
+use crate::hardware::MikrotikModel;
 use crate::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource, ValueFormat};
 use crate::RosError;
 
@@ -16,43 +14,6 @@ pub struct ConfigClient {
     output: String,
     model: HashMap<&'static str, Vec<HashMap<&'static str, String>>>,
     current_context: &'static str,
-}
-
-pub enum RosModel {
-    Crs109,
-}
-
-impl RosModel {
-    pub async fn init(&self, client: &mut ConfigClient) -> Result<(), RosError> {
-        let mut eth = client.fetch::<Ethernet>().await?;
-        let mut wlan = client.fetch::<Wireless>().await?;
-        for if_name in self.ethernet_interfaces() {
-            eth.get_or_create_by_value(&field_ref_of!(Ethernet => default_name), if_name);
-        }
-        for if_name in self.wireless_interfaces() {
-            wlan.get_or_create_by_value(&field_ref_of!(Wireless => default_name), if_name);
-        }
-
-        wlan.commit(client).await?;
-        eth.commit(client).await?;
-        client.dump_cmd();
-        Ok(())
-    }
-    fn ethernet_interfaces(&self) -> Vec<String> {
-        match self {
-            RosModel::Crs109 => (1..9)
-                .map(|idx| format!("ether{}", idx))
-                .chain(Some(String::from("sfp1")))
-                .collect(),
-        }
-    }
-    fn wireless_interfaces(&self) -> Vec<String> {
-        match self {
-            RosModel::Crs109 => {
-                vec![String::from("wlan1")]
-            }
-        }
-    }
 }
 
 impl ConfigClient {
@@ -63,7 +24,7 @@ impl ConfigClient {
             current_context: "",
         }
     }
-    pub async fn with_default_config(model: RosModel) -> Result<ConfigClient, RosError> {
+    pub async fn with_default_config(model: MikrotikModel) -> Result<ConfigClient, RosError> {
         let mut ret = Self::new();
         model.init(&mut ret).await?;
         Ok(ret)
@@ -163,9 +124,10 @@ impl Client<RosError> for ConfigClient {
         Resource: RouterOsListResource,
     {
         if let Some((description, field)) = resource.id_field() {
-            let key = description.name;
-            let value = quote_routeros(&field.api_value(&ValueFormat::Cli));
             if resource.is_modified() {
+                let key = description.name;
+                let api_value = field.api_value(&ValueFormat::Cli);
+                let value = quote_routeros(&api_value);
                 self.ensure_context(Resource::resource_path());
                 self.output
                     .push_str(&format!("set [ find where {key}={value} ] "));
@@ -175,7 +137,7 @@ impl Client<RosError> for ConfigClient {
                 let values = self.values_of_resource::<Resource>();
                 if let Some(found_ref) = values
                     .iter_mut()
-                    .find(|r| Some(&value) == r.get(description.name))
+                    .find(|r| Some(&api_value) == r.get(description.name))
                 {
                     Self::write_resource(resource, found_ref);
                 }

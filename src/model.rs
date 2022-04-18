@@ -76,8 +76,11 @@ where
     pub fn get(&self) -> &Option<T> {
         &self.current_value
     }
-    pub fn set(&mut self, value: T) {
-        self.current_value = Some(value);
+    pub fn set<IT>(&mut self, value: IT)
+    where
+        IT: Into<T>,
+    {
+        self.current_value = Some(value.into());
     }
     pub fn clear(&mut self) {
         self.current_value = None;

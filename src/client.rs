@@ -3,20 +3,22 @@ use std::iter::Chain;
 use std::mem;
 use std::mem::{swap, take};
 use std::ops::{Deref, DerefMut};
+use std::pin::Pin;
 use std::slice::{Iter, IterMut};
 
 use async_trait::async_trait;
 use field_ref::FieldRef;
 
 use crate::model::{
-    RosFieldValue, RosValue, RouterOsListResource, RouterOsResource, RouterOsSingleResource,
+    RosFieldValue, RosValue, RouterOsApiFieldAccess, RouterOsListResource, RouterOsResource,
+    RouterOsSingleResource,
 };
 
 pub mod api;
 pub mod config;
 
 #[async_trait]
-pub trait Client<Error>
+pub trait Client<Error>: Send
 where
     Error: std::error::Error,
 {
@@ -95,34 +97,34 @@ impl<R: RouterOsSingleResource> DerefMut for ResourceSingleAccess<R> {
 
 // unsafe impl<R> Send for ResourceAccess<R> where R: RouterOsResource {}
 
-impl<R> ResourceSingleAccess<R>
+impl<R> ResourceAccess for ResourceSingleAccess<R>
 where
     R: RouterOsSingleResource,
 {
-    pub fn commit<'a, C, E>(
+    fn commit<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output = Result<(), E>> + 'a
+    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
     where
         C: Client<E> + 'a,
         E: std::error::Error,
     {
         let data = take(&mut self.data);
-        async {
+        Box::pin(async {
             client.set(data).await?;
             self.rollback(client).await?;
             Ok(())
-        }
+        })
     }
-    pub fn rollback<'a, C, E>(
+    fn rollback<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output = Result<(), E>> + 'a
+    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
     where
         C: Client<E> + 'a,
         E: std::error::Error,
     {
-        async {
+        Box::pin(async {
             let fetched_data: Vec<R> = client.list().await?;
             if let Some(existing_value) = fetched_data.into_iter().next() {
                 self.data = existing_value;
@@ -130,8 +132,25 @@ where
                 self.data = R::default();
             };
             Ok(())
-        }
+        })
     }
+}
+
+pub trait ResourceAccess {
+    fn commit<'a, C, E>(
+        &'a mut self,
+        client: &'a mut C,
+    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error;
+    fn rollback<'a, C, E>(
+        &'a mut self,
+        client: &'a mut C,
+    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    where
+        C: Client<E> + 'a,
+        E: std::error::Error;
 }
 
 impl<R> ResourceListAccess<R>
@@ -232,29 +251,36 @@ where
         }
     }
 
-    pub fn get_or_create_by_value<V>(
+    pub fn get_or_create_by_value<V, IV>(
         &mut self,
         field: &FieldRef<R, RosFieldValue<V>>,
-        value: V,
+        value: IV,
     ) -> &mut R
     where
         V: RosValue<Type = V>,
+        IV: Into<V>,
     {
+        let value = value.into();
         let entry =
             self.get_or_default(|b| field.get(b).as_ref().map(|s| s == &value).unwrap_or(false));
         field.get_mut(entry).set(value);
         entry
     }
-    pub fn get_or_create_by_value2<V>(
+    pub fn get_or_create_by_value2<V1, V2, IV1, IV2>(
         &mut self,
-        field1: &FieldRef<R, RosFieldValue<V>>,
-        value1: V,
-        field2: &FieldRef<R, RosFieldValue<V>>,
-        value2: V,
+        field1: &FieldRef<R, RosFieldValue<V1>>,
+        value1: IV1,
+        field2: &FieldRef<R, RosFieldValue<V2>>,
+        value2: IV2,
     ) -> &mut R
     where
-        V: RosValue<Type = V>,
+        V1: RosValue<Type = V1>,
+        IV1: Into<V1>,
+        V2: RosValue<Type = V2>,
+        IV2: Into<V2>,
     {
+        let value1 = value1.into();
+        let value2 = value2.into();
         let entry = self.get_or_default(|b| {
             field1
                 .get(b)
@@ -271,10 +297,19 @@ where
         field2.get_mut(entry).set(value2);
         entry
     }
-    pub fn commit<'a, C, E>(
+    pub fn iter(&self) -> Chain<Iter<'_, R>, Iter<'_, R>> {
+        self.fetched_data.iter().chain(self.new_data.iter())
+    }
+    pub fn iter_mut(&mut self) -> Chain<IterMut<'_, R>, IterMut<'_, R>> {
+        self.fetched_data.iter_mut().chain(self.new_data.iter_mut())
+    }
+}
+
+impl<R: RouterOsListResource> ResourceAccess for ResourceListAccess<R> {
+    fn commit<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output = Result<(), E>> + 'a
+    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
     where
         C: Client<E> + 'a,
         E: std::error::Error,
@@ -303,7 +338,7 @@ where
             .filter(|e| !e.is_dynamic())
             .map(R::clone)
             .collect();
-        async {
+        Box::pin(async {
             for remove_entry in remove_entries {
                 client.delete(remove_entry).await?;
             }
@@ -318,29 +353,24 @@ where
             }
             self.rollback(client).await?;
             Ok(())
-        }
+        })
     }
-    pub fn rollback<'a, C, E>(
+
+    fn rollback<'a, C, E>(
         &'a mut self,
         client: &'a mut C,
-    ) -> impl Future<Output = Result<(), E>> + 'a
+    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
     where
         C: Client<E> + 'a,
         E: std::error::Error,
     {
-        async {
+        Box::pin(async {
             let fetched_data: Vec<R> = client.list().await?;
             self.remove_data.clear();
             self.new_data.clear();
             self.remove_if_not_touched.clear();
             self.fetched_data = fetched_data;
             Ok(())
-        }
-    }
-    pub fn iter(&self) -> Chain<Iter<'_, R>, Iter<'_, R>> {
-        self.fetched_data.iter().chain(self.new_data.iter())
-    }
-    pub fn iter_mut(&mut self) -> Chain<IterMut<'_, R>, IterMut<'_, R>> {
-        self.fetched_data.iter_mut().chain(self.new_data.iter_mut())
+        })
     }
 }
