@@ -100,7 +100,7 @@ impl ToString for ConfigClient {
 }
 
 #[async_trait]
-impl Client<RosError> for ConfigClient {
+impl Client for ConfigClient {
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, RosError>
     where
         Resource: RouterOsResource,

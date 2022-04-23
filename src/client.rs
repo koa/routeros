@@ -9,20 +9,21 @@ use std::slice::{Iter, IterMut};
 use async_trait::async_trait;
 use field_ref::FieldRef;
 
-use crate::model::{
-    RosFieldValue, RosValue, RouterOsApiFieldAccess, RouterOsListResource, RouterOsResource,
-    RouterOsSingleResource,
-};
+use crate::model::RosFieldValue;
+use crate::model::RosValue;
+use crate::model::RouterOsListResource;
+use crate::model::RouterOsResource;
+use crate::model::RouterOsSingleResource;
+use crate::RosError;
 
 pub mod api;
 pub mod config;
 
+pub mod supplier;
+
 #[async_trait]
-pub trait Client<Error>: Send
-where
-    Error: std::error::Error,
-{
-    async fn fetch<Resource>(&mut self) -> Result<ResourceListAccess<Resource>, Error>
+pub trait Client: Send + Sync {
+    async fn fetch<Resource>(&mut self) -> Result<ResourceListAccess<Resource>, RosError>
     where
         Resource: RouterOsListResource,
     {
@@ -34,7 +35,7 @@ where
             remove_if_not_touched: Vec::new(),
         })
     }
-    async fn get<Resource>(&mut self) -> Result<ResourceSingleAccess<Resource>, Error>
+    async fn get<Resource>(&mut self) -> Result<ResourceSingleAccess<Resource>, RosError>
     where
         Resource: RouterOsSingleResource,
     {
@@ -45,19 +46,19 @@ where
         };
         Ok(ResourceSingleAccess { data: value })
     }
-    async fn list<Resource>(&mut self) -> Result<Vec<Resource>, Error>
+    async fn list<Resource>(&mut self) -> Result<Vec<Resource>, RosError>
     where
         Resource: RouterOsResource;
-    async fn update<Resource>(&mut self, resource: Resource) -> Result<(), Error>
+    async fn update<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsListResource;
-    async fn set<Resource>(&mut self, resource: Resource) -> Result<(), Error>
+    async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsSingleResource;
-    async fn add<Resource>(&mut self, resource: Resource) -> Result<(), Error>
+    async fn add<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsListResource;
-    async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), Error>
+    async fn delete<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
     where
         Resource: RouterOsListResource;
 }
@@ -95,62 +96,44 @@ impl<R: RouterOsSingleResource> DerefMut for ResourceSingleAccess<R> {
     }
 }
 
-// unsafe impl<R> Send for ResourceAccess<R> where R: RouterOsResource {}
-
+#[async_trait]
 impl<R> ResourceAccess for ResourceSingleAccess<R>
 where
     R: RouterOsSingleResource,
 {
-    fn commit<'a, C, E>(
-        &'a mut self,
-        client: &'a mut C,
-    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
-        C: Client<E> + 'a,
-        E: std::error::Error,
+        C: Client + 'a,
     {
         let data = take(&mut self.data);
-        Box::pin(async {
-            client.set(data).await?;
-            self.rollback(client).await?;
-            Ok(())
-        })
+        //async {
+        client.set(data).await?;
+        self.rollback(client).await?;
+        Ok(())
+        //}
     }
-    fn rollback<'a, C, E>(
-        &'a mut self,
-        client: &'a mut C,
-    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    async fn rollback<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
-        C: Client<E> + 'a,
-        E: std::error::Error,
+        C: Client + 'a,
     {
-        Box::pin(async {
-            let fetched_data: Vec<R> = client.list().await?;
-            if let Some(existing_value) = fetched_data.into_iter().next() {
-                self.data = existing_value;
-            } else {
-                self.data = R::default();
-            };
-            Ok(())
-        })
+        let fetched_data: Vec<R> = client.list().await?;
+        if let Some(existing_value) = fetched_data.into_iter().next() {
+            self.data = existing_value;
+        } else {
+            self.data = R::default();
+        };
+        Ok(())
     }
 }
 
+#[async_trait]
 pub trait ResourceAccess {
-    fn commit<'a, C, E>(
-        &'a mut self,
-        client: &'a mut C,
-    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
-        C: Client<E> + 'a,
-        E: std::error::Error;
-    fn rollback<'a, C, E>(
-        &'a mut self,
-        client: &'a mut C,
-    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+        C: Client + 'a;
+    async fn rollback<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
-        C: Client<E> + 'a,
-        E: std::error::Error;
+        C: Client + 'a;
 }
 
 impl<R> ResourceListAccess<R>
@@ -305,14 +288,11 @@ where
     }
 }
 
+#[async_trait]
 impl<R: RouterOsListResource> ResourceAccess for ResourceListAccess<R> {
-    fn commit<'a, C, E>(
-        &'a mut self,
-        client: &'a mut C,
-    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
-        C: Client<E> + 'a,
-        E: std::error::Error,
+        C: Client + 'a,
     {
         let modified_entries: Vec<R> = self
             .fetched_data
@@ -338,39 +318,31 @@ impl<R: RouterOsListResource> ResourceAccess for ResourceListAccess<R> {
             .filter(|e| !e.is_dynamic())
             .map(R::clone)
             .collect();
-        Box::pin(async {
-            for remove_entry in remove_entries {
-                client.delete(remove_entry).await?;
-            }
-            for remove_entry in remove_untouched_entries {
-                client.delete(remove_entry).await?;
-            }
-            for update_entry in modified_entries {
-                client.update(update_entry).await?;
-            }
-            for new_entry in new_entries {
-                client.add(new_entry).await?;
-            }
-            self.rollback(client).await?;
-            Ok(())
-        })
+        for remove_entry in remove_entries {
+            client.delete(remove_entry).await?;
+        }
+        for remove_entry in remove_untouched_entries {
+            client.delete(remove_entry).await?;
+        }
+        for update_entry in modified_entries {
+            client.update(update_entry).await?;
+        }
+        for new_entry in new_entries {
+            client.add(new_entry).await?;
+        }
+        self.rollback(client).await?;
+        Ok(())
     }
 
-    fn rollback<'a, C, E>(
-        &'a mut self,
-        client: &'a mut C,
-    ) -> Pin<Box<dyn Future<Output = Result<(), E>> + 'a>>
+    async fn rollback<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
-        C: Client<E> + 'a,
-        E: std::error::Error,
+        C: Client + 'a,
     {
-        Box::pin(async {
-            let fetched_data: Vec<R> = client.list().await?;
-            self.remove_data.clear();
-            self.new_data.clear();
-            self.remove_if_not_touched.clear();
-            self.fetched_data = fetched_data;
-            Ok(())
-        })
+        let fetched_data: Vec<R> = client.list().await?;
+        self.remove_data.clear();
+        self.new_data.clear();
+        self.remove_if_not_touched.clear();
+        self.fetched_data = fetched_data;
+        Ok(())
     }
 }

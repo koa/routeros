@@ -82,3 +82,15 @@ region-revision:u8
 max-hops: u8
 pvid: u16
 ingress-filtering: bool
+
+/interface/bridge/vlan
+*.id
+bridge
+comment
+current-tagged: HashSet<String>
+current-untagged: HashSet<String>
+disabled: bool
+dynamic: bool
+tagged: HashSet<String>
+untagged: HashSet<String>
+vlan-ids: HashSet<u16>

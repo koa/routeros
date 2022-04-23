@@ -472,7 +472,7 @@ impl ApiClient {
 }
 
 #[async_trait]
-impl Client<RosError> for ApiClient {
+impl Client for ApiClient {
     async fn list<Resource>(&mut self) -> Result<Vec<Resource>, RosError>
     where
         Resource: RouterOsResource,

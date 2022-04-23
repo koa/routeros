@@ -3,7 +3,10 @@ use crate::client::Client;
 use crate::client::ResourceAccess;
 use crate::generated::interface::ethernet::Ethernet;
 use crate::generated::interface::wireless::Wireless;
+use crate::generated::system::resource::Resource;
 use crate::hardware::SwitchChip::{Qca8513L, _98DX3236};
+use std::ops::DerefMut;
+
 use crate::RosError;
 use field_ref::field_ref_of;
 pub enum MikrotikModel {
@@ -16,9 +19,29 @@ pub enum SwitchChip {
 }
 
 impl MikrotikModel {
+    pub fn parse_system(
+        resource: &crate::generated::system::resource::Resource,
+    ) -> Result<MikrotikModel, RosError> {
+        let board = resource
+            .board_name
+            .get()
+            .as_ref()
+            .map(String::as_str)
+            .unwrap_or("");
+        if board.starts_with("CRS109") {
+            Ok(MikrotikModel::Crs109)
+        } else if board.starts_with("CRS326") {
+            Ok(MikrotikModel::Crs326)
+        } else {
+            Err(RosError::SimpleMessage(format!(
+                "Unsupported Board: {board}"
+            )))
+        }
+    }
     pub async fn init(&self, client: &mut ConfigClient) -> Result<(), RosError> {
         let mut eth = client.fetch::<Ethernet>().await?;
         let mut wlan = client.fetch::<Wireless>().await?;
+        let mut resource = client.get::<Resource>().await?;
         for if_name in self.ethernet_interface_names() {
             eth.get_or_create_by_value(&field_ref_of!(Ethernet => default_name), if_name);
         }
@@ -26,8 +49,11 @@ impl MikrotikModel {
             wlan.get_or_create_by_value(&field_ref_of!(Wireless => default_name), if_name);
         }
 
+        resource.deref_mut().board_name.set(self.board_name());
+
         wlan.commit(client).await?;
         eth.commit(client).await?;
+        resource.commit(client).await?;
         client.dump_cmd();
         Ok(())
     }
@@ -55,6 +81,12 @@ impl MikrotikModel {
                 vec![String::from("wlan1")]
             }
             MikrotikModel::Crs326 => Vec::new(),
+        }
+    }
+    pub fn board_name(&self) -> &'static str {
+        match self {
+            MikrotikModel::Crs109 => "CRS109 Dummy",
+            MikrotikModel::Crs326 => "CRS326 Dummy",
         }
     }
 }
