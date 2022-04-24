@@ -1,6 +1,6 @@
 /ip/address
-.id
-address: IpNetAddr
+*.id
+address: IpNet
 network
 interface
 actual-interface
@@ -22,7 +22,7 @@ use-peer-dns: bool
 use-peer-ntp: bool
 
 !status: bound, error, rebinding..., requesting..., searching..., stopped
-!address: IpNetAddr
+!address: IpNet
 !gateway: IpAddr
 !primary-dns: IpAddr
 !caps-managers: IpAddr
@@ -30,3 +30,36 @@ use-peer-ntp: bool
 !dynamic: bool
 !dhcp-server: IpAddr
 !invalid: bool
+
+/ip/route
+*.id
+active: bool
+bgp: bool
+blackhole:bool
+check-gateway:arp,ping
+comment
+connect:bool
+copy
+dhcp: bool
+disabled: bool
+distance:u8
+dst-address:IpNet
+dynamic:bool
+ecmp:bool
+gateway: IpOrInterface
+gateway-status
+hw-offloaded:bool
+immediate-gw:IpOrInterface
+inactive:bool
+local-address:IpOrInterface
+modem:bool
+ospf:bool
+pref-src:IpAddr
+rip:bool
+routing-table
+scope:u8
+static:bool
+suppress-hw-offload:bool
+target-scope:u8
+vpn:bool
+vrf-interface

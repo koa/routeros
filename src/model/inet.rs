@@ -1,7 +1,8 @@
-use crate::model::{RosValue, ValueFormat};
-use crate::RosError;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+
+use crate::model::{RosValue, ValueFormat};
+use crate::RosError;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct IpNetAddr {
@@ -55,7 +56,6 @@ impl IpNetAddr {
     pub fn netmask(&self) -> u8 {
         self.netmask
     }
-    pub fn contains(&self, other: &IpAddr) {}
 }
 
 impl Default for IpNetAddr {

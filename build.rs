@@ -1,22 +1,19 @@
-use convert_case::{Case, Casing};
-use regex::Regex;
-
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fmt::Debug;
+use std::fmt::{format, Debug};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-
 use std::path::Path;
-
 use std::{env, fs};
+
+use convert_case::{Case, Casing};
+use regex::Regex;
 
 #[derive(Debug)]
 struct OutputModule {
     content: Vec<OutputField>,
     enums: HashMap<String, Enum>,
     sub_modules: HashMap<String, OutputModule>,
-    single_value: bool,
 }
 
 impl OutputModule {
@@ -25,7 +22,6 @@ impl OutputModule {
             content: Vec::new(),
             enums: HashMap::new(),
             sub_modules: HashMap::new(),
-            single_value: false,
         }
     }
 }
@@ -86,7 +82,7 @@ fn main() -> std::io::Result<()> {
                                 .sub_modules
                                 .entry(comp_name)
                                 .or_insert(OutputModule::new());
-                            current_module.single_value = true;
+                            //current_module.single_value = true;
                         }
                         open_module = Some(current_module);
                     } else if let Some(current_module) = &mut open_module {
@@ -167,9 +163,10 @@ fn dump_module(
         writeln!(file, "{prefix}use crate::RosError;")?;
         writeln!(
             file,
-            "{prefix}use crate::model::{{Auto, ValueFormat, FieldDescription}};"
+            "{prefix}use crate::model::ros_value::{{Auto, ValueFormat, IpWithInterface, IpOrInterface}};"
         )?;
-        writeln!(file, "{prefix}use crate::model::inet::IpNetAddr;")?;
+        writeln!(file, "{prefix}use crate::model::FieldDescription;")?;
+        writeln!(file, "{prefix}use ipnet::IpNet;")?;
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
         writeln!(file, "{prefix}use std::ops::RangeInclusive;")?;
@@ -274,10 +271,10 @@ fn dump_module(
         writeln!(
             file,
             "{prefix}impl crate::model::{variant} for {model_name} {{",
-            variant = if module_data.single_value {
-                "RouterOsSingleResource"
-            } else {
+            variant = if module_data.content.iter().any(|f| f.id) {
                 "RouterOsListResource"
+            } else {
+                "RouterOsSingleResource"
             }
         )?;
         writeln!(file, "{prefix}}}")?;
@@ -348,7 +345,12 @@ fn expand_enum_name(name: &str) -> Option<String> {
 }
 
 fn expand_field_name(name: &str) -> String {
-    name2rust(name, false).to_case(Case::Snake)
+    let field_name = name2rust(name, false).to_case(Case::Snake);
+    if field_name == "static" {
+        format!("r#{field_name}")
+    } else {
+        field_name
+    }
 }
 
 fn name2rust(string: &str, start_capital: bool) -> String {
@@ -469,6 +471,8 @@ fn parse_field_line(line: String) -> Option<(OutputField, Option<Enum>)> {
 fn field_description_name(field_name: &str) -> String {
     format!(
         "{}_FIELD_DESCRIPTION",
-        expand_field_name(&field_name).to_ascii_uppercase()
+        name2rust(field_name, false)
+            .to_case(Case::Snake)
+            .to_ascii_uppercase()
     )
 }

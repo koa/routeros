@@ -1,5 +1,7 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::Debug;
+use std::mem;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 
@@ -285,7 +287,7 @@ impl<'a> ApiRos {
     async fn read_word(&mut self) -> Result<Option<ApiWord>, RosError> {
         let token = self.read_token().await?;
         let parsed = ApiWord::parse(&token);
-        if cfg!(debug) {
+        if cfg!(feature = "debug") {
             println!(">>> {:?}", parsed);
         }
         Ok(parsed)
@@ -301,7 +303,7 @@ impl<'a> ApiRos {
     }
 
     async fn write_word(&mut self, w: &ApiWord) -> Result<(), RosError> {
-        if cfg!(debug) {
+        if cfg!(feature = "debug") {
             println!("<<< {:?}", w);
         }
         let token = w.encode();
@@ -325,7 +327,7 @@ impl<'a> ApiRos {
             ret += 1;
         }
         self.write_len(0).await?;
-        if cfg!(debug) {
+        if cfg!(feature = "debug") {
             println!("====================");
         }
         Ok(ret)
@@ -395,7 +397,7 @@ impl<'a> ApiRos {
                 ApiWord::attribute("password", pwd),
             ])
             .await?;
-        if cfg!(debug) {
+        if cfg!(feature = "debug") {
             println!("Login response: {:?}", login_response);
         }
 
@@ -466,8 +468,44 @@ impl ApiClient {
             .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
 
         let x = self.api.talk_vec(request).await?;
-        println!("Result: {:?}", x);
         Ok(())
+    }
+}
+
+enum AttributeCollector<Resource: RouterOsResource> {
+    Ressource(Resource),
+    Error(HashMap<String, String>),
+    None,
+}
+
+impl<Resource: RouterOsResource> AttributeCollector<Resource> {
+    pub fn extract(self) -> (Option<Resource>, Option<HashMap<String, String>>) {
+        match self {
+            AttributeCollector::Ressource(r) => (Some(r), None),
+            AttributeCollector::Error(error) => (None, Some(error)),
+            AttributeCollector::None => (None, None),
+        }
+    }
+    pub fn write_attribute(&mut self, key: String, value: String) -> Result<(), RosError> {
+        match self {
+            AttributeCollector::Ressource(r) => {
+                if let Some(field_accessor) = r
+                    .fields_mut()
+                    .find(|e| e.0.name.eq(key.as_str()))
+                    .map(|e| e.1)
+                {
+                    field_accessor.set_from_api(value.as_str())?;
+                    Ok(())
+                } else {
+                    Err(RosError::field_missing_error(key, value))
+                }
+            }
+            AttributeCollector::Error(error) => {
+                error.insert(key, value);
+                Ok(())
+            }
+            AttributeCollector::None => Ok(()),
+        }
     }
 }
 
@@ -479,60 +517,41 @@ impl Client for ApiClient {
     {
         let path = Resource::resource_path();
         let command = format!("{}/print", path);
-        let mut result_builder = Mutex::new(RefCell::new(Resource::default()));
+        let mut result_builder = AttributeCollector::<Resource>::None;
 
         let mut ret = vec![];
         self.api
             .talk([ApiWord::command(command)], &mut |word| match word {
                 ApiWord::Command(_) => Ok(()),
-                ApiWord::Attribute { key, value } => {
-                    if let Some(field_accessor) = result_builder
-                        .get_mut()
-                        .unwrap()
-                        .get_mut()
-                        .fields_mut()
-                        .find(|e| e.0.name.eq(key.as_str()))
-                        .map(|e| e.1)
-                    {
-                        field_accessor.set_from_api(value.as_str()).map_err(|e| {
-                            RosError::FieldWriteError {
-                                structure: path,
-                                field_name: key.to_string(),
-                                field_value: value.to_string(),
-                                error: Box::new(e),
-                            }
-                        })?;
-                        Ok(())
+                ApiWord::Attribute { key, value } => result_builder.write_attribute(key, value),
+
+                ApiWord::ApiAttribute { .. } => Ok(()),
+                ApiWord::Reply(reply_type) => {
+                    let mut new_resource = match reply_type {
+                        ApiReplyType::Done => AttributeCollector::Ressource(Resource::default()),
+                        ApiReplyType::Data => AttributeCollector::Ressource(Resource::default()),
+                        ApiReplyType::Trap => AttributeCollector::Error(HashMap::new()),
+                        ApiReplyType::Fatal => AttributeCollector::Error(HashMap::new()),
+                    };
+                    mem::swap(&mut new_resource, &mut result_builder);
+                    let (data, error) = new_resource.extract();
+                    if let Some(resource) = data {
+                        ret.push(resource);
+                    }
+                    if let Some(error_data) = error {
+                        let message = error_data.get("message").map(String::as_str).unwrap_or("");
+                        if message == "no such command prefix" {
+                            Ok(())
+                        } else {
+                            Err(RosError::SimpleMessage(message.to_owned()))
+                        }
                     } else {
-                        Err(RosError::field_missing_error(path, &key, &value))
+                        Ok(())
                     }
                 }
-                ApiWord::Reply(ApiReplyType::Done) => {
-                    ret.push(
-                        result_builder
-                            .get_mut()
-                            .unwrap()
-                            .replace(Resource::default()),
-                    );
-                    Ok(())
-                }
-                ApiWord::Reply(ApiReplyType::Data) => {
-                    ret.push(
-                        result_builder
-                            .get_mut()
-                            .unwrap()
-                            .replace(Resource::default()),
-                    );
-                    Ok(())
-                }
-                ApiWord::ApiAttribute { .. } => Ok(()),
                 ApiWord::Query(_) => Ok(()),
-                ApiWord::Reply(_) => Ok(()),
             })
             .await?;
-        if ret.len() > 0 {
-            ret.remove(0);
-        }
         Ok(ret)
     }
 

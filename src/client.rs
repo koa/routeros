@@ -1,9 +1,7 @@
-use std::future::Future;
 use std::iter::Chain;
 use std::mem;
 use std::mem::{swap, take};
 use std::ops::{Deref, DerefMut};
-use std::pin::Pin;
 use std::slice::{Iter, IterMut};
 
 use async_trait::async_trait;
@@ -27,7 +25,13 @@ pub trait Client: Send + Sync {
     where
         Resource: RouterOsListResource,
     {
-        let fetched_data: Vec<Resource> = self.list().await?;
+        let fetched_data: Vec<Resource> =
+            self.list()
+                .await
+                .map_err(|error| RosError::StructureAccessError {
+                    structure: Resource::resource_path(),
+                    error: Box::new(error),
+                })?;
         Ok(ResourceListAccess {
             fetched_data,
             new_data: Vec::new(),
@@ -101,7 +105,7 @@ impl<R> ResourceAccess for ResourceSingleAccess<R>
 where
     R: RouterOsSingleResource,
 {
-    async fn commit_remove<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    async fn commit_remove<'a, C>(&'a mut self, _client: &'a mut C) -> Result<(), RosError>
     where
         C: Client + 'a,
     {
@@ -116,10 +120,10 @@ where
         if data.is_modified() {
             client.set(data).await?;
         }
-        self.rollback(client).await?;
+        //self.rollback(client).await?;
         Ok(())
     }
-    async fn commit_add<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    async fn commit_add<'a, C>(&'a mut self, _client: &'a mut C) -> Result<(), RosError>
     where
         C: Client + 'a,
     {
@@ -358,6 +362,11 @@ where
     }
     pub fn iter_mut(&mut self) -> Chain<IterMut<'_, R>, IterMut<'_, R>> {
         self.fetched_data.iter_mut().chain(self.new_data.iter_mut())
+    }
+    pub fn to_be_deleted_iter(&self) -> Chain<Iter<'_, R>, Iter<'_, R>> {
+        self.remove_if_not_touched
+            .iter()
+            .chain(self.remove_data.iter())
     }
 }
 

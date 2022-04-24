@@ -4,8 +4,9 @@ use std::net::AddrParseError;
 use std::num::ParseIntError;
 use std::str::ParseBoolError;
 
-use crate::RosError::FieldMissingError;
 use mac_address::MacParseError;
+
+use crate::RosError::FieldMissingError;
 
 pub mod client;
 pub mod hardware;
@@ -19,29 +20,30 @@ pub enum RosError {
     ParseIntError(ParseIntError),
     ParseBoolError(ParseBoolError),
     AddrParseError(AddrParseError),
+    IpNetAddrParseError(ipnet::AddrParseError),
     MacParseError(MacParseError),
     Umbrella(Vec<RosError>),
     FieldWriteError {
-        structure: &'static str,
         field_name: String,
         field_value: String,
         error: Box<RosError>,
     },
     FieldMissingError {
-        structure: &'static str,
         field_name: String,
         field_value: String,
+    },
+    StructureAccessError {
+        structure: &'static str,
+        error: Box<RosError>,
     },
 }
 
 impl RosError {
-    pub fn field_missing_error(
-        structure: &'static str,
-        field_name: &str,
-        field_value: &str,
+    pub fn field_missing_error<K: ToString, V: ToString>(
+        field_name: K,
+        field_value: V,
     ) -> RosError {
         FieldMissingError {
-            structure,
             field_name: field_name.to_string(),
             field_value: field_value.to_string(),
         }
@@ -56,6 +58,7 @@ impl Display for RosError {
             RosError::ParseIntError(e) => std::fmt::Display::fmt(&e, f),
             RosError::ParseBoolError(e) => std::fmt::Display::fmt(&e, f),
             RosError::AddrParseError(e) => std::fmt::Display::fmt(&e, f),
+            RosError::IpNetAddrParseError(e) => std::fmt::Display::fmt(&e, f),
             RosError::MacParseError(e) => std::fmt::Display::fmt(&e, f),
             RosError::Umbrella(errors) => {
                 for error in errors {
@@ -64,14 +67,11 @@ impl Display for RosError {
                 Ok(())
             }
             RosError::FieldWriteError {
-                structure,
                 field_name,
                 field_value,
                 error,
             } => {
                 f.write_str("Error on field on ")?;
-                f.write_str(structure)?;
-                f.write_str(": ")?;
                 f.write_str(&field_name)?;
                 f.write_str(" value ")?;
                 f.write_str(&field_value)?;
@@ -80,16 +80,21 @@ impl Display for RosError {
                 Ok(())
             }
             RosError::FieldMissingError {
-                structure,
                 field_name,
                 field_value,
             } => {
-                f.write_str("Missing ")?;
-                f.write_str(structure)?;
-                f.write_str(": ")?;
+                f.write_str("Missing field ")?;
                 f.write_str(&field_name)?;
+                f.write_str(": ")?;
                 f.write_str(" value from api ")?;
                 f.write_str(&field_value)
+            }
+            RosError::StructureAccessError { structure, error } => {
+                f.write_str("Error on structure ")?;
+                f.write_str(structure)?;
+                f.write_str(": ")?;
+                std::fmt::Display::fmt(&error, f)?;
+                Ok(())
             }
         }
     }
@@ -110,6 +115,12 @@ impl From<ParseBoolError> for RosError {
 impl From<AddrParseError> for RosError {
     fn from(e: AddrParseError) -> Self {
         RosError::AddrParseError(e)
+    }
+}
+
+impl From<ipnet::AddrParseError> for RosError {
+    fn from(e: ipnet::AddrParseError) -> Self {
+        RosError::IpNetAddrParseError(e)
     }
 }
 
