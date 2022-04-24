@@ -101,16 +101,29 @@ impl<R> ResourceAccess for ResourceSingleAccess<R>
 where
     R: RouterOsSingleResource,
 {
-    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    async fn commit_remove<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        Ok(())
+    }
+    async fn commit_update<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
         C: Client + 'a,
     {
         let data = take(&mut self.data);
         //async {
-        client.set(data).await?;
+        if data.is_modified() {
+            client.set(data).await?;
+        }
         self.rollback(client).await?;
         Ok(())
-        //}
+    }
+    async fn commit_add<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        Ok(())
     }
     async fn rollback<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
@@ -128,14 +141,74 @@ where
 
 #[async_trait]
 pub trait ResourceAccess {
-    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    async fn commit_remove<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
         C: Client + 'a;
+    async fn commit_update<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a;
+    async fn commit_add<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a;
+    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        self.commit_remove(client).await?;
+        self.commit_update(client).await?;
+        self.commit_add(client).await?;
+        self.rollback(client).await?;
+        Ok(())
+    }
     async fn rollback<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
         C: Client + 'a;
 }
 
+/*
+#[async_trait]
+impl<I: Iterator<Item = Box<dyn ResourceAccess>>> ResourceAccess for I {
+    async fn commit_remove<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        for mut r in self.deref_mut() {
+            r.commit_remove(client).await?;
+        }
+        Ok(())
+    }
+
+    async fn commit_update<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        for mut r in self.deref_mut() {
+            r.commit_update(client).await?;
+        }
+        Ok(())
+    }
+
+    async fn commit_add<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        for mut r in self.deref_mut() {
+            r.commit_add(client).await?;
+        }
+        Ok(())
+    }
+
+    async fn rollback<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        for mut r in self.deref_mut() {
+            r.rollback(client).await?;
+        }
+        Ok(())
+    }
+}
+*/
 impl<R> ResourceListAccess<R>
 where
     R: RouterOsListResource,
@@ -143,9 +216,9 @@ where
     /*pub fn add(&mut self, r: R) {
         self.new_data.push(r);
     }*/
-    pub fn remove<P>(&mut self, filter: P)
+    pub fn remove<F>(&mut self, filter: F)
     where
-        P: Fn(&R) -> bool,
+        F: Fn(&R) -> bool,
     {
         self.new_data.retain(|r| !filter(r));
 
@@ -290,22 +363,10 @@ where
 
 #[async_trait]
 impl<R: RouterOsListResource> ResourceAccess for ResourceListAccess<R> {
-    async fn commit<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    async fn commit_remove<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
     where
         C: Client + 'a,
     {
-        let modified_entries: Vec<R> = self
-            .fetched_data
-            .iter()
-            .filter(|e| (!(*e).is_dynamic()) && (*e).is_modified())
-            .map(R::clone)
-            .collect();
-        let new_entries: Vec<R> = self
-            .new_data
-            .iter()
-            .filter(|e| !e.is_dynamic())
-            .map(R::clone)
-            .collect();
         let remove_entries: Vec<R> = self
             .remove_data
             .iter()
@@ -324,13 +385,36 @@ impl<R: RouterOsListResource> ResourceAccess for ResourceListAccess<R> {
         for remove_entry in remove_untouched_entries {
             client.delete(remove_entry).await?;
         }
+        Ok(())
+    }
+    async fn commit_update<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        let modified_entries: Vec<R> = self
+            .fetched_data
+            .iter()
+            .filter(|e| (!(*e).is_dynamic()) && (*e).is_modified())
+            .map(R::clone)
+            .collect();
         for update_entry in modified_entries {
             client.update(update_entry).await?;
         }
+        Ok(())
+    }
+    async fn commit_add<'a, C>(&'a mut self, client: &'a mut C) -> Result<(), RosError>
+    where
+        C: Client + 'a,
+    {
+        let new_entries: Vec<R> = self
+            .new_data
+            .iter()
+            .filter(|e| !e.is_dynamic())
+            .map(R::clone)
+            .collect();
         for new_entry in new_entries {
             client.add(new_entry).await?;
         }
-        self.rollback(client).await?;
         Ok(())
     }
 

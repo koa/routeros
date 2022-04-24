@@ -258,3 +258,22 @@ wps-mode: disabled,push-button,push-button-5s,push-button-virtual-only
 *default-name
 interface-type: Atheros AR9300,none
 running: bool
+
+/interface/vlan
+.id
+arp: disabled,enabled,local-proxy-arp, proxy-arp, reply-only
+arp-timeout: Auto<u16>
+comment
+disabled: bool
+interface
+l2mtu: u16
+loop-protect: default, off, on
+loop-protect-disable-time: Duration
+loop-protect-send-interval: Duration
+loop-protect-status: on, off, disable
+mac-address: MacAddress
+mtu: u16
+*name
+running: bool
+use-service-tag: bool
+vlan-id: u16

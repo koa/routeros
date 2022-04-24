@@ -167,8 +167,9 @@ fn dump_module(
         writeln!(file, "{prefix}use crate::RosError;")?;
         writeln!(
             file,
-            "{prefix}use crate::model::{{Auto, IpNetAddr, ValueFormat, FieldDescription}};"
+            "{prefix}use crate::model::{{Auto, ValueFormat, FieldDescription}};"
         )?;
+        writeln!(file, "{prefix}use crate::model::inet::IpNetAddr;")?;
         writeln!(file, "{prefix}use mac_address::MacAddress;")?;
         writeln!(file, "{prefix}use std::collections::HashSet;")?;
         writeln!(file, "{prefix}use std::ops::RangeInclusive;")?;
