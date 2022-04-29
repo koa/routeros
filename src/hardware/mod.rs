@@ -1,3 +1,7 @@
+use std::ops::DerefMut;
+
+use field_ref::field_ref_of;
+
 use crate::client::config::ConfigClient;
 use crate::client::Client;
 use crate::client::ResourceAccess;
@@ -5,14 +9,13 @@ use crate::generated::interface::ethernet::Ethernet;
 use crate::generated::interface::wireless::Wireless;
 use crate::generated::system::resource::Resource;
 use crate::hardware::SwitchChip::{Qca8513L, _98DX3236};
-use std::ops::DerefMut;
-
 use crate::RosError;
-use field_ref::field_ref_of;
+
 pub enum MikrotikModel {
     Crs109,
     Crs326,
 }
+
 pub enum SwitchChip {
     Qca8513L,
     _98DX3236,
@@ -28,14 +31,18 @@ impl MikrotikModel {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("");
+        Self::parse_board_name(board).ok_or(RosError::SimpleMessage(format!(
+            "Unsupported Board: {board}"
+        )))
+    }
+
+    pub fn parse_board_name(board: &str) -> Option<MikrotikModel> {
         if board.starts_with("CRS109") {
-            Ok(MikrotikModel::Crs109)
+            Some(MikrotikModel::Crs109)
         } else if board.starts_with("CRS326") {
-            Ok(MikrotikModel::Crs326)
+            Some(MikrotikModel::Crs326)
         } else {
-            Err(RosError::SimpleMessage(format!(
-                "Unsupported Board: {board}"
-            )))
+            None
         }
     }
     pub async fn init(&self, client: &mut ConfigClient) -> Result<(), RosError> {
