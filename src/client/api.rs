@@ -444,8 +444,12 @@ impl ApiClient {
             .await
             .map_err(|e| RosError::TokioError(e))?;
         let mut api: ApiRos = ApiRos::new(stream);
-        api.login(username, password).await?;
-        Ok(ApiClient { api })
+        let login_ok = api.login(username, password).await?;
+        if login_ok {
+            Ok(ApiClient { api })
+        } else {
+            Err(RosError::SimpleMessage(String::from("Login failed")))
+        }
     }
 
     async fn set<Resource>(&mut self, resource: Resource) -> Result<(), RosError>
