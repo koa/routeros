@@ -1,9 +1,7 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::mem;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Mutex;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -471,7 +469,7 @@ impl ApiClient {
             .filter_map(|f| f.1.modified_value(&ValueFormat::Api).map(|v| (f.0.name, v)))
             .for_each(|(key, value)| request.push(ApiWord::attribute(key, value)));
 
-        let x = self.api.talk_vec(request).await?;
+        self.api.talk_vec(request).await?;
         Ok(())
     }
 }
