@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::mem;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -11,7 +12,7 @@ use crate::client::Client;
 use crate::model::{RouterOsListResource, RouterOsResource, RouterOsSingleResource, ValueFormat};
 use crate::RosError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum ApiReplyType {
     Done,
     Data,
@@ -19,7 +20,7 @@ enum ApiReplyType {
     Fatal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum Query {
     HasValue(String),
     HasNoValue(String),
@@ -28,7 +29,7 @@ enum Query {
     Gt { key: String, value: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 enum ApiWord {
     Command(String),
     Attribute { key: String, value: String },
@@ -132,6 +133,21 @@ impl ApiWord {
             key: key.to_string(),
             value: value.to_string(),
         }
+    }
+
+    pub fn api_attribute<K, V>(key: K, value: V) -> ApiWord
+    where
+        K: ToString,
+        V: ToString,
+    {
+        ApiWord::ApiAttribute {
+            key: key.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    pub fn tag<V: ToString>(value: V) -> ApiWord {
+        Self::api_attribute("tag", value)
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -338,30 +354,19 @@ impl<'a> ApiRos {
     {
         self.write_sentence(words.into_iter()).await?;
 
-        let mut read_data = false;
-
         let mut errors: Vec<RosError> = Vec::new();
 
         loop {
             let raw_token = self.read_word().await?;
-            match raw_token {
-                None => {
-                    if read_data {
-                        read_data = false;
+            if let Some(token) = raw_token {
+                let is_done = token == ApiWord::Reply(ApiReplyType::Done);
+                Self::push_err(&mut errors, callback(token));
+                if is_done {
+                    return if errors.is_empty() {
+                        Ok(())
                     } else {
-                        return if errors.is_empty() {
-                            Ok(())
-                        } else {
-                            Err(RosError::Umbrella(errors))
-                        };
-                    }
-                }
-                Some(ApiWord::Reply(ApiReplyType::Data)) => {
-                    Self::push_err(&mut errors, callback(ApiWord::Reply(ApiReplyType::Data)));
-                    read_data = true;
-                }
-                Some(token) => {
-                    Self::push_err(&mut errors, callback(token));
+                        Err(RosError::Umbrella(errors))
+                    };
                 }
             };
         }
@@ -430,6 +435,7 @@ impl<'a> ApiRos {
 
 pub struct ApiClient {
     api: ApiRos,
+    tag_counter: AtomicU32,
 }
 
 impl ApiClient {
@@ -444,7 +450,10 @@ impl ApiClient {
         let mut api: ApiRos = ApiRos::new(stream);
         let login_ok = api.login(username, password).await?;
         if login_ok {
-            Ok(ApiClient { api })
+            Ok(ApiClient {
+                api,
+                tag_counter: AtomicU32::default(),
+            })
         } else {
             Err(RosError::SimpleMessage(String::from("Login failed")))
         }
@@ -458,6 +467,9 @@ impl ApiClient {
         let path = Resource::resource_path();
 
         request.push(ApiWord::command(format!("{}/set", path)));
+        request.push(ApiWord::tag(
+            self.tag_counter.fetch_add(1, Ordering::SeqCst),
+        ));
         if let Some((description, value)) = resource.id_field() {
             request.push(ApiWord::attribute(
                 description.name,
@@ -522,37 +534,49 @@ impl Client for ApiClient {
         let mut result_builder = AttributeCollector::<Resource>::None;
 
         let mut ret = vec![];
-        self.api
-            .talk([ApiWord::command(command)], &mut |word| match word {
-                ApiWord::Command(_) => Ok(()),
-                ApiWord::Attribute { key, value } => result_builder.write_attribute(key, value),
 
-                ApiWord::ApiAttribute { .. } => Ok(()),
-                ApiWord::Reply(reply_type) => {
-                    let mut new_resource = match reply_type {
-                        ApiReplyType::Done => AttributeCollector::Ressource(Resource::default()),
-                        ApiReplyType::Data => AttributeCollector::Ressource(Resource::default()),
-                        ApiReplyType::Trap => AttributeCollector::Error(HashMap::new()),
-                        ApiReplyType::Fatal => AttributeCollector::Error(HashMap::new()),
-                    };
-                    mem::swap(&mut new_resource, &mut result_builder);
-                    let (data, error) = new_resource.extract();
-                    if let Some(resource) = data {
-                        ret.push(resource);
-                    }
-                    if let Some(error_data) = error {
-                        let message = error_data.get("message").map(String::as_str).unwrap_or("");
-                        if message == "no such command prefix" {
-                            Ok(())
-                        } else {
-                            Err(RosError::SimpleMessage(message.to_owned()))
+        self.api
+            .talk(
+                [
+                    ApiWord::command(command),
+                    ApiWord::tag(self.tag_counter.fetch_add(1, Ordering::SeqCst)),
+                ],
+                &mut |word| match word {
+                    ApiWord::Command(_) => Ok(()),
+                    ApiWord::Attribute { key, value } => result_builder.write_attribute(key, value),
+
+                    ApiWord::ApiAttribute { .. } => Ok(()),
+                    ApiWord::Reply(reply_type) => {
+                        let mut new_resource = match reply_type {
+                            ApiReplyType::Done => {
+                                AttributeCollector::Ressource(Resource::default())
+                            }
+                            ApiReplyType::Data => {
+                                AttributeCollector::Ressource(Resource::default())
+                            }
+                            ApiReplyType::Trap => AttributeCollector::Error(HashMap::new()),
+                            ApiReplyType::Fatal => AttributeCollector::Error(HashMap::new()),
+                        };
+                        mem::swap(&mut new_resource, &mut result_builder);
+                        let (data, error) = new_resource.extract();
+                        if let Some(resource) = data {
+                            ret.push(resource);
                         }
-                    } else {
-                        Ok(())
+                        if let Some(error_data) = error {
+                            let message =
+                                error_data.get("message").map(String::as_str).unwrap_or("");
+                            if message == "no such command prefix" {
+                                Ok(())
+                            } else {
+                                Err(RosError::SimpleMessage(message.to_owned()))
+                            }
+                        } else {
+                            Ok(())
+                        }
                     }
-                }
-                ApiWord::Query(_) => Ok(()),
-            })
+                    ApiWord::Query(_) => Ok(()),
+                },
+            )
             .await?;
         Ok(ret)
     }
