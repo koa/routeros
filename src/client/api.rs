@@ -473,7 +473,9 @@ impl ApiClient {
         if let Some((description, value)) = resource.id_field() {
             request.push(ApiWord::attribute(
                 description.name,
-                value.api_value(&ValueFormat::Api),
+                value
+                    .original_value(&ValueFormat::Api)
+                    .unwrap_or_else(String::new),
             ));
         }
         resource

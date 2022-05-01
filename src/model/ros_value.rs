@@ -30,6 +30,7 @@ pub trait RosValue: Eq {
 
 pub trait RosFieldAccessor {
     fn modified_value(&self, format: &ValueFormat) -> Option<String>;
+    fn original_value(&self, format: &ValueFormat) -> Option<String>;
     fn api_value(&self, format: &ValueFormat) -> String;
     fn set_from_api(&mut self, value: &str) -> Result<(), RosError>;
     fn clear(&mut self) -> Result<(), RosError>;

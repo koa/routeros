@@ -128,7 +128,12 @@ impl Client for ConfigClient {
             if resource.is_modified() {
                 let key = description.name;
                 let api_value = field.api_value(&ValueFormat::Cli);
-                let value = quote_routeros(&api_value);
+                let value = quote_routeros(
+                    field
+                        .original_value(&ValueFormat::Cli)
+                        .unwrap_or_default()
+                        .as_str(),
+                );
                 self.ensure_context(Resource::resource_path());
                 self.output
                     .push_str(&format!("set [ find where {key}={value} ] "));

@@ -94,6 +94,10 @@ where
         }
     }
 
+    fn original_value(&self, format: &ValueFormat) -> Option<String> {
+        self.original_value_converted().map(|v| v.to_api(format))
+    }
+
     fn api_value(&self, format: &ValueFormat) -> String {
         self.current_value
             .as_ref()
