@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::fmt::{format, Debug, Display, Formatter, Write};
+use std::fmt::{Debug, Display, Formatter, Write};
 use std::hash::Hash;
 use std::net::{AddrParseError, IpAddr};
 use std::num::ParseIntError;
@@ -12,6 +12,9 @@ use mac_address::MacAddress;
 use mac_address::MacParseError;
 
 use crate::RosError;
+
+#[cfg(test)]
+mod tests;
 
 pub enum ValueFormat {
     Api,
@@ -235,11 +238,11 @@ impl RosValue for Option<u32> {
 
     fn from_api(value: &str) -> Result<Self::Type, Self::Err> {
         if value == "none" {
-            Ok(Option::None)
+            Ok(None)
         } else if value.starts_with("0x") {
-            u32::from_str_radix(&value[2..], 16).map(Option::Some)
+            u32::from_str_radix(&value[2..], 16).map(Some)
         } else {
-            value.parse().map(Option::Some)
+            value.parse().map(Some)
         }
     }
 
