@@ -175,6 +175,7 @@ fn dump_module(
         let model_name = module_path[1..].join("-").to_case(Case::UpperCamel);
         for (type_name, type_values) in module_data.enums.iter() {
             writeln!(file, "{prefix}#[derive(Debug, Eq, PartialEq, Clone, Hash)]")?;
+            writeln!(file, "{prefix}#[allow(non_camel_case_types)]")?;
             writeln!(file, "{prefix}pub enum {type_name} {{")?;
             for value in type_values.values.iter() {
                 if let Some(enum_value) = expand_enum_name(value.as_str()) {
