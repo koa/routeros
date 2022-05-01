@@ -36,7 +36,8 @@ impl ConfigClient {
     fn ensure_context(&mut self, resource_path: &'static str) {
         if resource_path != self.current_context {
             self.output.push('/');
-            self.output.push_str(resource_path);
+            self.output
+                .push_str(resource_path.replace('/', " ").as_str());
             self.output.push('\n');
             self.current_context = resource_path;
         }
